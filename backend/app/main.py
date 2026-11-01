@@ -1,8 +1,10 @@
+
 from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
+from app.api.v1.router import api_router
 
 
 app = FastAPI(
@@ -10,6 +12,9 @@ app = FastAPI(
     version=settings.app_version,
     description="AI-powered customer support SaaS platform.",
 )
+
+# Register API routes AFTER creating the FastAPI application.
+app.include_router(api_router)
 
 
 @app.get("/", tags=["Root"])
