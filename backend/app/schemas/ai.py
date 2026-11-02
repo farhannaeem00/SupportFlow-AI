@@ -1,13 +1,9 @@
 
-from typing import Literal
-
-from pydantic import BaseModel, Field
-
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
-
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConversationAnalysis(BaseModel):
@@ -23,6 +19,17 @@ class AIReply(BaseModel):
     response: str = Field(min_length=1, max_length=4000)
 
 
+class KnowledgeSource(BaseModel):
+    document_id: UUID
+    filename: str
+    chunk_index: int
+
+
+class KnowledgeAIReply(BaseModel):
+    response: str = Field(min_length=1, max_length=4000)
+    sources: list[KnowledgeSource] = Field(default_factory=list)
+    grounded: bool = True
+    requires_human: bool = False
 
 
 class ConversationAIInsightResponse(BaseModel):
@@ -35,11 +42,12 @@ class ConversationAIInsightResponse(BaseModel):
     requires_human: bool
     reasoning: str
     suggested_reply: str | None
+    suggested_reply_sources: list[KnowledgeSource] = Field(
+        default_factory=list
+    )
     analyzed_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-
 
 
 class AISuggestionReviewRequest(BaseModel):
@@ -51,7 +59,6 @@ class AISuggestionReviewResponse(BaseModel):
     suggestion_status: Literal["pending", "approved", "rejected"]
     reviewed_by_id: UUID | None
     reviewed_at: datetime
-
 
 
 class AIEscalationQueueItem(BaseModel):
@@ -67,6 +74,7 @@ class AIEscalationQueueItem(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class AIAnalyticsDistribution(BaseModel):
     name: str

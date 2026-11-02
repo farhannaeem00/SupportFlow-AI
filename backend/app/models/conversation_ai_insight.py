@@ -4,10 +4,12 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
     Index,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -17,7 +19,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-from sqlalchemy import CheckConstraint
 
 class ConversationAIInsight(Base):
     __tablename__ = "conversation_ai_insights"
@@ -32,8 +33,8 @@ class ConversationAIInsight(Base):
             "organization_id",
         ),
         CheckConstraint(
-       "suggestion_status IN ('pending', 'approved', 'rejected')",
-       name="ck_conversation_ai_insights_suggestion_status",
+            "suggestion_status IN ('pending', 'approved', 'rejected')",
+            name="ck_conversation_ai_insights_suggestion_status",
         ),
     )
 
@@ -91,6 +92,12 @@ class ConversationAIInsight(Base):
         nullable=True,
     )
 
+    # Documents used as sources for the suggested reply.
+    suggested_reply_sources: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
     analyzed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -98,18 +105,18 @@ class ConversationAIInsight(Base):
     )
 
     suggestion_status: Mapped[str] = mapped_column(
-    String(20),
-    default="pending",
-    nullable=False,
-)
+        String(20),
+        default="pending",
+        nullable=False,
+    )
 
-reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(
-    UUID(as_uuid=True),
-    ForeignKey("users.id", ondelete="SET NULL"),
-    nullable=True,
-)
+    reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
-reviewed_at: Mapped[datetime | None] = mapped_column(
-    DateTime(timezone=True),
-    nullable=True,
-)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
