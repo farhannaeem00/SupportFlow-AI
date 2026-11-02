@@ -8,6 +8,7 @@ from app.models.conversation_event import ConversationEvent
 from app.models.widget_session import WidgetSession
 from app.models.conversation_ai_insight import ConversationAIInsight
 from app.models.organization_ai_settings import OrganizationAISettings
+from app.models.widget_rate_limit import WidgetRateLimit
 
 from app.models.knowledge_base import (
     KnowledgeBase,
@@ -28,4 +29,5 @@ __all__ = [
     "OrganizationAISettings",
     "KnowledgeBase",
     "KnowledgeDocument",
+    "WidgetRateLimit",
 ]

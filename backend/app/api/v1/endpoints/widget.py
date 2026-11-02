@@ -1,7 +1,14 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -27,6 +34,9 @@ from app.services.widget_service import (
 import logging
 
 from app.services.ai.conversation_ai_service import ConversationAIService
+
+from app.config import settings
+from app.services.widget_rate_limit_service import enforce_widget_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +136,20 @@ def get_widget_config(
 )
 def create_session(
     public_key: str,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     organization = get_widget_organization(public_key, db)
+
+    client_ip = request.client.host if request.client else "unknown"
+
+    enforce_widget_rate_limit(
+        db=db,
+        organization_id=organization.id,
+        client_key=f"ip:{client_ip}",
+        action="session",
+        limit=settings.widget_session_rate_limit,
+    )
 
     widget_session, raw_token = create_widget_session(
         db,
@@ -158,6 +179,13 @@ def create_conversation(
         organization.id,
         x_widget_session,
         db,
+    )
+    enforce_widget_rate_limit(
+        db=db,
+        organization_id=organization.id,
+        client_key=f"session:{x_widget_session}",
+        action="conversation",
+        limit=settings.widget_conversation_rate_limit,
     )
 
     if widget_session.conversation_id is not None:
@@ -211,6 +239,7 @@ def send_message(
         x_widget_session,
         db,
     )
+
     try:
         message = send_widget_message(
             db,
@@ -229,6 +258,13 @@ def send_message(
             organization_id=organization.id,
             conversation_id=widget_session.conversation_id,
         )
+    enforce_widget_rate_limit(
+        db=db,
+        organization_id=organization.id,
+        client_key=f"session:{x_widget_session}",
+        action="message",
+        limit=settings.widget_message_rate_limit,
+    )
 
     return message
 

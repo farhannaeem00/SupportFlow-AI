@@ -27,6 +27,25 @@ class Settings(BaseSettings):
     # Maximum accepted Chroma cosine distance (0 to 2).
     knowledge_max_distance: float = Field(default=0.7, ge=0.0, le=2.0)
 
+        # Public website widget rate limits
+    widget_rate_limit_window_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=3600,
+    )
+    widget_session_rate_limit: int = Field(
+        default=10,
+        ge=1,
+    )
+    widget_conversation_rate_limit: int = Field(
+        default=5,
+        ge=1,
+    )
+    widget_message_rate_limit: int = Field(
+        default=20,
+        ge=1,
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

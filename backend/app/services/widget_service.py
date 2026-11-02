@@ -209,12 +209,11 @@ def get_widget_conversation(
         raise LookupError("No conversation has been started.")
 
     conversation = db.scalar(
-        select(Conversation).where(
-            Conversation.id == widget_session.conversation_id,
-            Conversation.organization_id == widget_session.organization_id,
-        )
+    select(Conversation).where(
+        Conversation.id == widget_session.conversation_id,
+        Conversation.organization_id == widget_session.organization_id,
     )
-
+)
     if conversation is None:
         raise LookupError("Conversation not found.")
 
