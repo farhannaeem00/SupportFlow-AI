@@ -1,24 +1,21 @@
 
+from uuid import UUID
 from collections.abc import Generator
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
-
-from app.core.security import decode_access_token
-from app.database import get_db
-from app.models import User
-
-from uuid import UUID
-
 from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import OrganizationMember
+from app.core.security import decode_access_token
+from app.database import get_db
+from app.models import User, OrganizationMember
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/token"
+)
+
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
@@ -37,21 +34,25 @@ def get_current_user(
         if not user_id:
             raise credentials_exception
 
-    except ValueError:
+        user_uuid = UUID(str(user_id))
+
+    except (ValueError, TypeError, AttributeError):
         raise credentials_exception
 
-    user = db.get(User, user_id)
+    user = db.get(User, user_uuid)
 
     if not user or not user.is_active:
         raise credentials_exception
 
     return user
 
+
 def get_current_membership(
     organization_id: UUID = Header(alias="X-Organization-ID"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrganizationMember:
+
     membership = db.scalar(
         select(OrganizationMember)
         .options(joinedload(OrganizationMember.organization))
@@ -65,6 +66,12 @@ def get_current_membership(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this organization",
+        )
+
+    if not membership.organization.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This organization is inactive",
         )
 
     return membership

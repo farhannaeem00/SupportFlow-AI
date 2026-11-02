@@ -1,3 +1,4 @@
+
 import uuid
 
 from sqlalchemy import select
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.conversation import Conversation
 from app.models.conversation_event import ConversationEvent
 from app.models.organization_member import OrganizationMember
+from app.models.user import User
 
 
 VALID_STATUSES = {
@@ -61,15 +63,22 @@ def assign_conversation(
 
         if assigned_to_id is not None:
             membership = db.scalar(
-                select(OrganizationMember).where(
+                select(OrganizationMember)
+                .join(
+                    User,
+                    User.id == OrganizationMember.user_id,
+                )
+                .where(
                     OrganizationMember.organization_id == organization_id,
                     OrganizationMember.user_id == assigned_to_id,
+                    User.is_active.is_(True),
                 )
             )
 
             if membership is None:
                 raise ValueError(
-                    "The assigned user is not a member of this organization."
+                    "The assigned user must be an active member "
+                    "of this organization."
                 )
 
         old_value = (

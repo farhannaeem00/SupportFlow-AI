@@ -61,3 +61,13 @@ class ConversationPriorityUpdate(BaseModel):
     priority: str = Field(
         pattern="^(low|normal|high|urgent)$"
     )
+class ConversationEventResponse(BaseModel):
+    id: uuid.UUID
+    conversation_id: uuid.UUID
+    actor_id: uuid.UUID | None
+    event_type: str
+    old_value: str | None
+    new_value: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

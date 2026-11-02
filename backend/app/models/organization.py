@@ -61,3 +61,7 @@ class Organization(Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
+
+    knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
+        cascade="all, delete-orphan",
+    )

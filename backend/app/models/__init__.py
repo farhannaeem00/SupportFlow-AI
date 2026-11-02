@@ -5,6 +5,14 @@ from app.models.customer import Customer
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.conversation_event import ConversationEvent
+from app.models.widget_session import WidgetSession
+from app.models.conversation_ai_insight import ConversationAIInsight
+from app.models.organization_ai_settings import OrganizationAISettings
+
+from app.models.knowledge_base import (
+    KnowledgeBase,
+    KnowledgeDocument,
+)
 
 
 __all__ = [
@@ -15,4 +23,9 @@ __all__ = [
     "Conversation",
     "Message",
     "ConversationEvent",
+    "WidgetSession",
+    "ConversationAIInsight",
+    "OrganizationAISettings",
+    "KnowledgeBase",
+    "KnowledgeDocument",
 ]

@@ -1,8 +1,9 @@
+
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.models import OrganizationMember, User
+from app.models import Organization, OrganizationMember, User
 
 
 VALID_ROLES = {"owner", "agent"}
@@ -65,6 +66,21 @@ def add_team_member(
         raise
 
 
+def _lock_organization(db: Session, organization_id):
+    """Serialize ownership changes within an organization."""
+
+    organization = db.scalar(
+        select(Organization)
+        .where(Organization.id == organization_id)
+        .with_for_update()
+    )
+
+    if organization is None:
+        raise LookupError("Organization not found.")
+
+    return organization
+
+
 def update_member_role(
     db: Session,
     organization_id,
@@ -76,34 +92,45 @@ def update_member_role(
     if new_role not in VALID_ROLES:
         raise ValueError("Invalid role")
 
-    membership = db.scalar(
-        select(OrganizationMember).where(
-            OrganizationMember.id == member_id,
-            OrganizationMember.organization_id == organization_id,
-        )
-    )
+    try:
+        # Lock organization before checking ownership.
+        _lock_organization(db, organization_id)
 
-    if not membership:
-        return None
-
-    if membership.role == "owner" and new_role != "owner":
-        owner_count = db.scalar(
-            select(func.count())
-            .select_from(OrganizationMember)
-            .where(
+        membership = db.scalar(
+            select(OrganizationMember).where(
+                OrganizationMember.id == member_id,
                 OrganizationMember.organization_id == organization_id,
-                OrganizationMember.role == "owner",
             )
         )
 
-        if owner_count <= 1:
-            raise ValueError("An organization must have at least one owner")
+        if not membership:
+            return None
 
-    membership.role = new_role
-    db.commit()
-    db.refresh(membership)
+        if membership.role == "owner" and new_role != "owner":
+            owner_count = db.scalar(
+                select(func.count())
+                .select_from(OrganizationMember)
+                .where(
+                    OrganizationMember.organization_id == organization_id,
+                    OrganizationMember.role == "owner",
+                )
+            )
 
-    return membership
+            if owner_count <= 1:
+                raise ValueError(
+                    "An organization must have at least one owner"
+                )
+
+        membership.role = new_role
+
+        db.commit()
+        db.refresh(membership)
+
+        return membership
+
+    except Exception:
+        db.rollback()
+        raise
 
 
 def remove_team_member(
@@ -112,33 +139,45 @@ def remove_team_member(
     member_id,
     current_user_id,
 ):
-    membership = db.scalar(
-        select(OrganizationMember).where(
-            OrganizationMember.id == member_id,
-            OrganizationMember.organization_id == organization_id,
-        )
-    )
+    try:
+        # Use the same lock as update_member_role.
+        _lock_organization(db, organization_id)
 
-    if not membership:
-        return None
-
-    if membership.user_id == current_user_id:
-        raise ValueError("You cannot remove your own membership")
-
-    if membership.role == "owner":
-        owner_count = db.scalar(
-            select(func.count())
-            .select_from(OrganizationMember)
-            .where(
+        membership = db.scalar(
+            select(OrganizationMember).where(
+                OrganizationMember.id == member_id,
                 OrganizationMember.organization_id == organization_id,
-                OrganizationMember.role == "owner",
             )
         )
 
-        if owner_count <= 1:
-            raise ValueError("An organization must have at least one owner")
+        if not membership:
+            return None
 
-    db.delete(membership)
-    db.commit()
+        if membership.user_id == current_user_id:
+            raise ValueError(
+                "You cannot remove your own membership"
+            )
 
-    return True
+        if membership.role == "owner":
+            owner_count = db.scalar(
+                select(func.count())
+                .select_from(OrganizationMember)
+                .where(
+                    OrganizationMember.organization_id == organization_id,
+                    OrganizationMember.role == "owner",
+                )
+            )
+
+            if owner_count <= 1:
+                raise ValueError(
+                    "An organization must have at least one owner"
+                )
+
+        db.delete(membership)
+        db.commit()
+
+        return True
+
+    except Exception:
+        db.rollback()
+        raise
