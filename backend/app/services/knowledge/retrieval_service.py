@@ -5,13 +5,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import KnowledgeBase
-from app.services.knowledge.embedding_service import (
-    generate_query_embedding,
-)
-from app.services.knowledge.vector_store import (
-    search_document_chunks,
-)
+from app.services.knowledge.embedding_service import generate_query_embedding
+from app.services.knowledge.vector_store import search_document_chunks
 
 
 def retrieve_knowledge(
@@ -21,10 +18,7 @@ def retrieve_knowledge(
     query: str,
     limit: int = 5,
 ) -> list[dict]:
-    """
-    Retrieve relevant document chunks from an organization's
-    active knowledge base.
-    """
+    """Retrieve only knowledge chunks within the configured distance threshold."""
 
     query = query.strip()
 
@@ -69,13 +63,31 @@ def retrieve_knowledge(
         limit=limit,
     )
 
-    return [
-        {
-            "text": result["text"],
-            "source": result["metadata"].get("filename"),
-            "document_id": result["metadata"].get("document_id"),
-            "chunk_index": result["metadata"].get("chunk_index"),
-            "distance": result["distance"],
-        }
-        for result in results
-    ]
+    relevant_results = []
+
+    for result in results:
+        distance = result.get("distance")
+
+        # Ignore malformed results rather than passing uncertain matches to the AI.
+        if not isinstance(distance, (int, float)):
+            continue
+
+        if distance < 0 or distance > 2:
+            continue
+
+        if distance > settings.knowledge_max_distance:
+            continue
+
+        metadata = result.get("metadata") or {}
+
+        relevant_results.append(
+            {
+                "text": result["text"],
+                "source": metadata.get("filename"),
+                "document_id": metadata.get("document_id"),
+                "chunk_index": metadata.get("chunk_index"),
+                "distance": distance,
+            }
+        )
+
+    return relevant_results

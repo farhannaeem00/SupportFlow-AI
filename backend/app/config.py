@@ -1,5 +1,7 @@
+
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,16 +18,20 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 10
     allowed_document_extensions: str = ".pdf,.docx,.txt"
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
     vector_store_dir: str = "storage/chroma"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     document_chunk_size: int = 1000
     document_chunk_overlap: int = 200
+
+    # Maximum accepted Chroma cosine distance (0 to 2).
+    knowledge_max_distance: float = Field(default=0.7, ge=0.0, le=2.0)
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache
