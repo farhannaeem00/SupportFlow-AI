@@ -222,3 +222,34 @@ def test_invalid_customer_email_rejected(client):
     )
 
     assert response.status_code == 422
+
+
+def test_duplicate_customer_email_rejected_on_update(client):
+    owner = register_owner(client, "owner12@example.com")
+
+    first = create_test_customer(
+        client,
+        owner,
+        "first@example.com",
+        "First Customer",
+    )
+    second = create_test_customer(
+        client,
+        owner,
+        "second@example.com",
+        "Second Customer",
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    first_customer_id = first.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/customers/{first_customer_id}",
+        headers=auth_headers(owner),
+        json={"email": "second@example.com"},
+    )
+
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
