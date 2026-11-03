@@ -1,7 +1,8 @@
 import hashlib
+import io
+import logging
 import uuid
 import zipfile
-
 from pathlib import Path
 from uuid import UUID
 
@@ -12,6 +13,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import KnowledgeBase, KnowledgeDocument
 from app.services.knowledge.vector_store import delete_document_chunks
+
+
+
+logger = logging.getLogger(__name__)
 
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
@@ -95,8 +100,6 @@ def validate_file(
         )
 
     if extension == ".docx":
-        import io
-
         try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
                 entries = archive.infolist()
@@ -254,7 +257,13 @@ async def upload_document(
 
     except Exception:
         db.rollback()
-        file_path.unlink(missing_ok=True)
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError:
+            logger.exception(
+                "Failed to remove uploaded file after database failure: %s",
+                file_path,
+            )
         raise
 
     return document
@@ -311,8 +320,7 @@ def delete_document(
     organization_id: UUID,
     knowledge_base_id: UUID,
     document_id: UUID,
-) -> None:
-
+) -> dict[str, str]:
     document = get_document(
         db,
         organization_id,
@@ -320,8 +328,9 @@ def delete_document(
         document_id,
     )
 
+    upload_root = get_upload_root()
     storage_directory = (
-        get_upload_root()
+        upload_root
         / str(organization_id)
         / str(knowledge_base_id)
     ).resolve()
@@ -330,19 +339,41 @@ def delete_document(
         storage_directory / document.stored_filename
     ).resolve()
 
+    # Ensure the stored file resolves directly inside this knowledge base folder.
     if file_path.parent != storage_directory:
         raise HTTPException(
-            status_code=400,
-            detail="Invalid document storage path",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid document storage path.",
         )
 
-    # Delete vectors before deleting the database record.
-    delete_document_chunks(
-        organization_id,
-        document_id,
+    # Commit the database deletion before touching external resources.
+    try:
+        db.delete(document)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    # Vector cleanup is best-effort; a failure must not undo the DB deletion.
+    try:
+        delete_document_chunks(
+            organization_id,
+            document_id,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to delete vectors for document %s in organization %s",
+            document_id,
+            organization_id,
     )
 
-    db.delete(document)
-    db.commit()
+    # File cleanup is also best-effort.
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception(
+            "Failed to delete uploaded document file: %s",
+            file_path,
+    )
 
-    file_path.unlink(missing_ok=True)
+    return {"message": "Document deleted successfully."}

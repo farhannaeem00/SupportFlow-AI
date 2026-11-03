@@ -1,23 +1,23 @@
+
+import logging
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import KnowledgeBase, KnowledgeDocument
+from app.config import settings
+from app.models import KnowledgeBase
 from app.schemas.knowledge_base import (
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,
 )
-import logging
-from pathlib import Path
-
-from app.config import settings
-from app.services.knowledge.vector_store import delete_knowledge_base_chunks
-
+from app.services.knowledge.vector_store import (
+    delete_knowledge_base_chunks,
+)
 logger = logging.getLogger(__name__)
-
 
 def create_knowledge_base(
     db: Session,
@@ -133,13 +133,13 @@ def delete_knowledge_base(
     organization_id: UUID,
     knowledge_base_id: UUID,
 ) -> None:
+
     knowledge_base = get_knowledge_base(
         db,
         organization_id,
         knowledge_base_id,
     )
 
-    # Collect document file paths before database cascade deletion.
     documents = list(knowledge_base.documents)
 
     upload_root = Path(settings.upload_dir).resolve()
@@ -153,7 +153,6 @@ def delete_knowledge_base(
             / document.stored_filename
         ).resolve()
 
-        # Never allow cleanup to access files outside the upload directory.
         if not document_path.is_relative_to(upload_root):
             logger.error(
                 "Skipped unsafe document path during knowledge base deletion: %s",
@@ -163,11 +162,15 @@ def delete_knowledge_base(
 
         document_paths.append(document_path)
 
-    # Delete the knowledge base and its related database records.
-    db.delete(knowledge_base)
-    db.commit()
+    # Commit database deletion before external cleanup.
+    try:
+        db.delete(knowledge_base)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-    # Clean up vectors only after the database commit succeeds.
+    # Remove knowledge base vectors.
     try:
         delete_knowledge_base_chunks(
             organization_id,
@@ -179,7 +182,7 @@ def delete_knowledge_base(
             knowledge_base_id,
         )
 
-    # Remove uploaded files after the database commit.
+    # Remove uploaded document files.
     for document_path in document_paths:
         try:
             document_path.unlink(missing_ok=True)
