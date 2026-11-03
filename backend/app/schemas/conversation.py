@@ -1,8 +1,15 @@
 import uuid
 
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+)
 from app.schemas.customer import CustomerResponse
+
 
 
 class ConversationCreate(BaseModel):
@@ -10,6 +17,15 @@ class ConversationCreate(BaseModel):
     subject: str = Field(min_length=1, max_length=200)
     priority: str = "normal"
     channel: str = "web_widget"
+
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Subject cannot be empty")
+        return value
+    
 
 
 class ConversationResponse(BaseModel):
@@ -46,6 +62,14 @@ class MessageResponse(BaseModel):
 
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be empty")
+        return value
 
 class ConversationAssignmentUpdate(BaseModel):
     assigned_to_id: uuid.UUID | None
