@@ -24,6 +24,11 @@ CONTENT_TYPES = {
     ),
     ".txt": "text/plain",
 }
+# DOCX archive security limits
+MAX_DOCX_ENTRIES = 1000
+MAX_DOCX_TOTAL_UNCOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_DOCX_ENTRY_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_DOCX_COMPRESSION_RATIO = 200
 
 
 def get_upload_root() -> Path:
@@ -53,6 +58,7 @@ def get_knowledge_base(
         )
 
     return knowledge_base
+
 
 
 def validate_file(
@@ -89,20 +95,62 @@ def validate_file(
         )
 
     if extension == ".docx":
-        try:
-            import io
+        import io
 
+        try:
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                if "[Content_Types].xml" not in archive.namelist():
+                entries = archive.infolist()
+
+                if len(entries) > MAX_DOCX_ENTRIES:
+                    raise ValueError("Too many DOCX archive entries")
+
+                filenames = {entry.filename for entry in entries}
+
+                if "[Content_Types].xml" not in filenames:
                     raise ValueError("Invalid DOCX structure")
 
-                if "word/document.xml" not in archive.namelist():
+                if "word/document.xml" not in filenames:
                     raise ValueError("Missing document content")
 
-        except (zipfile.BadZipFile, ValueError):
+                total_uncompressed_size = 0
+
+                for entry in entries:
+                    if entry.is_dir():
+                        continue
+
+                    if entry.flag_bits & 0x1:
+                        raise ValueError("Encrypted DOCX entries are not supported")
+
+                    if entry.file_size > MAX_DOCX_ENTRY_SIZE:
+                        raise ValueError("DOCX archive entry is too large")
+
+                    total_uncompressed_size += entry.file_size
+
+                    if (
+                        total_uncompressed_size
+                        > MAX_DOCX_TOTAL_UNCOMPRESSED_SIZE
+                    ):
+                        raise ValueError("DOCX archive is too large")
+
+                    if entry.file_size > 0:
+                        if entry.compress_size == 0:
+                            raise ValueError("Invalid DOCX compression size")
+
+                        compression_ratio = (
+                            entry.file_size / entry.compress_size
+                        )
+
+                        if compression_ratio > MAX_DOCX_COMPRESSION_RATIO:
+                            raise ValueError("Suspicious DOCX compression ratio")
+
+        except (
+            zipfile.BadZipFile,
+            ValueError,
+            OSError,
+        ):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid DOCX file",
+                detail="Invalid or unsafe DOCX file",
             )
 
     if extension == ".txt":
@@ -115,6 +163,7 @@ def validate_file(
             )
 
     return extension, CONTENT_TYPES[extension]
+
 
 
 async def upload_document(
