@@ -240,6 +240,15 @@ def send_message(
         db,
     )
 
+    # Enforce rate limit BEFORE saving or processing the message.
+    enforce_widget_rate_limit(
+        db=db,
+        organization_id=organization.id,
+        client_key=f"session:{x_widget_session}",
+        action="message",
+        limit=settings.widget_message_rate_limit,
+    )
+
     try:
         message = send_widget_message(
             db,
@@ -252,23 +261,15 @@ def send_message(
             detail=str(exc),
         )
 
+    # Process AI only after the message has been successfully saved.
     if widget_session.conversation_id is not None:
         process_widget_ai(
             db=db,
             organization_id=organization.id,
             conversation_id=widget_session.conversation_id,
         )
-    enforce_widget_rate_limit(
-        db=db,
-        organization_id=organization.id,
-        client_key=f"session:{x_widget_session}",
-        action="message",
-        limit=settings.widget_message_rate_limit,
-    )
 
     return message
-
-    
 
 @router.get(
     "/{public_key}/conversation",
