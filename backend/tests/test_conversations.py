@@ -517,3 +517,24 @@ def test_cannot_assign_conversation_to_inactive_user(client, db_session):
     assert response.status_code == 422
     assert "active member" in response.json()["detail"]
 
+
+def test_reject_invalid_conversation_status_filter(client):
+    owner = register_owner(client, "invalid_status@example.com")
+
+    response = client.get(
+        "/api/v1/conversations?status=invalid",
+        headers=auth_headers(owner),
+    )
+
+    assert response.status_code == 422
+
+
+def test_reject_invalid_conversation_priority_filter(client):
+    owner = register_owner(client, "invalid_priority@example.com")
+
+    response = client.get(
+        "/api/v1/conversations?priority=super-urgent",
+        headers=auth_headers(owner),
+    )
+
+    assert response.status_code == 422

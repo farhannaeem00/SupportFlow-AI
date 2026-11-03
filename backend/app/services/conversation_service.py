@@ -46,11 +46,14 @@ def create_conversation(
         channel=payload.channel,
     )
 
-    db.add(conversation)
-    db.commit()
-    db.refresh(conversation)
-
-    return conversation
+    try:
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        return conversation
+    except Exception:
+        db.rollback()
+        raise
 
 
 def list_conversations(

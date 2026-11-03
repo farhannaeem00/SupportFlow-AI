@@ -66,6 +66,7 @@ from app.schemas.ai import (
     AIAnalyticsDistribution,
     AIAnalyticsResponse,
 )
+from typing import Literal
 
 
 router = APIRouter(
@@ -107,8 +108,14 @@ def create_conversation_endpoint(
     response_model=list[ConversationResponse],
 )
 def get_conversations(
-    status_filter: str | None = Query(default=None, alias="status"),
-    priority: str | None = None,
+    status_filter: Literal[
+    "open", "pending", "resolved", "closed"
+] | None = Query(default=None, alias="status"),
+
+    priority: Literal[
+    "low", "normal", "high", "urgent"
+] | None = None, 
+    
     assigned_to_id: uuid.UUID | None = None,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
