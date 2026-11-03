@@ -54,7 +54,7 @@ from app.schemas.ai import (
 )
 from app.models.conversation_ai_insight import ConversationAIInsight
 
-from sqlalchemy import case, select
+from sqlalchemy import case, select, update
 
 from app.models.conversation import Conversation
 from app.models.conversation_ai_insight import ConversationAIInsight
@@ -430,19 +430,36 @@ def review_ai_suggestion(
             detail="There is no AI-generated suggestion to review.",
         )
 
-    if insight.suggestion_status != "pending":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This AI suggestion has already been reviewed.",
+    try:
+        result = db.execute(
+            update(ConversationAIInsight)
+            .where(
+                ConversationAIInsight.id == insight.id,
+                ConversationAIInsight.organization_id == membership.organization_id,
+                ConversationAIInsight.suggestion_status == "pending",
+                ConversationAIInsight.suggested_reply.is_not(None),
+            )
+            .values(
+                suggestion_status=data.decision,
+                reviewed_by_id=membership.user_id,
+                reviewed_at=datetime.now(timezone.utc),
+            )
+            .execution_options(synchronize_session=False)
         )
 
-    insight.suggestion_status = data.decision
-    insight.reviewed_by_id = membership.user_id
-    insight.reviewed_at = datetime.now(timezone.utc)
+        if result.rowcount != 1:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This AI suggestion has already been reviewed.",
+            )
 
-    try:
         db.commit()
+
         db.refresh(insight)
+
+    except HTTPException:
+        raise
     except Exception:
         db.rollback()
         raise
