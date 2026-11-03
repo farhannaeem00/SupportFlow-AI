@@ -1,3 +1,4 @@
+
 import uuid
 from datetime import datetime, timezone
 
@@ -5,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -23,6 +25,11 @@ class KnowledgeBase(Base):
             "organization_id",
             "name",
             name="uq_knowledge_base_org_name",
+        ),
+        UniqueConstraint(
+            "id",
+            "organization_id",
+            name="uq_knowledge_base_id_organization",
         ),
     )
 
@@ -77,6 +84,18 @@ class KnowledgeBase(Base):
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
 
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["knowledge_base_id", "organization_id"],
+            [
+                "knowledge_bases.id",
+                "knowledge_bases.organization_id",
+            ],
+            name="fk_knowledge_document_knowledge_base_org",
+            ondelete="CASCADE",
+        ),
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -92,7 +111,6 @@ class KnowledgeDocument(Base):
 
     knowledge_base_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
