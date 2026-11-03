@@ -190,3 +190,36 @@ def test_user_cannot_access_another_organization(client):
     )
 
     assert response.status_code == 403
+
+def test_owner_cannot_invite_member_with_invalid_role(client):
+    owner = register_owner(client)
+
+    response = client.post(
+        "/api/v1/team/members",
+        headers=auth_headers(owner),
+        json={
+            "full_name": "Invalid Role User",
+            "email": "invalid_role@example.com",
+            "password": "AgentPassword123!",
+            "role": "superadmin",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_owner_cannot_assign_invalid_role(client):
+    owner = register_owner(client)
+
+    invite_response = invite_agent(client, owner)
+    assert invite_response.status_code == 201
+
+    member_id = invite_response.json()["member_id"]
+
+    response = client.patch(
+        f"/api/v1/team/members/{member_id}/role",
+        headers=auth_headers(owner),
+        json={"role": "superadmin"},
+    )
+
+    assert response.status_code == 422
