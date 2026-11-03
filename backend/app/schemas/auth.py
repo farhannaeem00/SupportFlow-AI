@@ -14,10 +14,8 @@ class RegisterRequest(BaseModel):
     @classmethod
     def validate_names(cls, value: str) -> str:
         value = value.strip()
-
         if len(value) < 2:
             raise ValueError("Must contain at least 2 non-whitespace characters")
-
         return value
 
     @field_validator("password")
@@ -25,7 +23,6 @@ class RegisterRequest(BaseModel):
     def validate_password(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("Password cannot contain only whitespace")
-
         return value
 
 
@@ -43,6 +40,13 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AuthOrganizationResponse(BaseModel):
+    id: UUID
+    name: str
+    slug: str
+    public_key: str
+    role: str
+
 class OrganizationResponse(BaseModel):
     id: UUID
     name: str
@@ -52,8 +56,18 @@ class OrganizationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AuthOrganizationResponse(BaseModel):
+    id: UUID
+    name: str
+    slug: str
+    public_key: str
+    role: str
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
-    organization: OrganizationResponse | None
+    organization: OrganizationResponse | None = None
+    organizations: list[AuthOrganizationResponse]
+

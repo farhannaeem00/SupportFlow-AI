@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
@@ -7,17 +8,49 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User
 from app.schemas.auth import (
+    AuthOrganizationResponse,
     AuthResponse,
     LoginRequest,
+    OrganizationResponse,
     RegisterRequest,
     UserResponse,
-    OrganizationResponse,
 )
 from app.services.auth_service import register_user, authenticate_user
-from fastapi.security import OAuth2PasswordRequestForm
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def build_auth_response(user: User) -> AuthResponse:
+    organizations = [
+        AuthOrganizationResponse(
+            id=membership.organization.id,
+            name=membership.organization.name,
+            slug=membership.organization.slug,
+            public_key=membership.organization.public_key,
+            role=membership.role,
+        )
+        for membership in user.memberships
+        if membership.organization.is_active
+    ]
+
+    organizations.sort(key=lambda organization: organization.name.lower())
+
+    return AuthResponse(
+        access_token=create_access_token(user.id),
+        user=UserResponse.model_validate(user),
+        organization=(
+            OrganizationResponse(
+                id=organizations[0].id,
+                name=organizations[0].name,
+                slug=organizations[0].slug,
+                public_key=organizations[0].public_key,
+            )
+            if organizations
+            else None
+        ),
+        organizations=organizations,
+    )
 
 
 @router.post(
@@ -30,7 +63,7 @@ def register(
     db: Session = Depends(get_db),
 ):
     try:
-        user, organization = register_user(
+        user, _ = register_user(
             db=db,
             full_name=payload.full_name,
             email=str(payload.email),
@@ -41,13 +74,9 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )
+        ) from exc
 
-    return AuthResponse(
-        access_token=create_access_token(user.id),
-        user=UserResponse.model_validate(user),
-        organization=OrganizationResponse.model_validate(organization),
-    )
+    return build_auth_response(user)
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -68,13 +97,7 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return AuthResponse(
-        access_token=create_access_token(user.id),
-        user=UserResponse.model_validate(user),
-        organization=OrganizationResponse.model_validate(
-            user.memberships[0].organization
-        ) if user.memberships else None,
-    )
+    return build_auth_response(user)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -82,6 +105,7 @@ def get_me(
     current_user: User = Depends(get_current_user),
 ):
     return current_user
+
 
 @router.post("/token", tags=["Authentication"])
 def oauth2_token(

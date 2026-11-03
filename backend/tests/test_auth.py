@@ -5,7 +5,7 @@ from jose import jwt
 from sqlalchemy import select
 
 from app.config import settings
-from app.models import User
+from app.models import Organization, OrganizationMember, User
 
 
 def register_test_user(client):
@@ -31,7 +31,9 @@ def test_register_user_success(client):
     assert data["token_type"] == "bearer"
     assert data["user"]["email"] == payload["email"]
     assert data["user"]["full_name"] == payload["full_name"]
-    assert data["organization"]["name"] == payload["organization_name"]
+    assert data["organizations"]
+    assert data["organizations"][0]["name"] == payload["organization_name"]
+    assert data["organizations"][0]["role"] == "owner"
 
 
 def test_login_success(client):
@@ -51,7 +53,9 @@ def test_login_success(client):
 
     assert data["access_token"]
     assert data["user"]["email"] == payload["email"]
-    assert data["organization"]["name"] == payload["organization_name"]
+    assert data["organizations"]
+    assert data["organizations"][0]["name"] == payload["organization_name"]
+    assert data["organizations"][0]["role"] == "owner"
 
 
 def test_login_invalid_password(client):
@@ -209,6 +213,7 @@ def test_get_current_user_with_missing_subject(client):
 
     assert response.status_code == 401
 
+
 def test_register_rejects_whitespace_only_full_name(client):
     response = client.post(
         "/api/v1/auth/register",
@@ -221,6 +226,60 @@ def test_register_rejects_whitespace_only_full_name(client):
     )
 
     assert response.status_code == 422
+
+
+def test_login_returns_all_user_organizations(client, db_session):
+    _, payload = register_test_user(client)
+
+    user = db_session.scalar(
+        select(User).where(User.email == payload["email"])
+    )
+
+    second_organization = Organization(
+        name="Second Organization",
+        slug="second-organization",
+    )
+    db_session.add(second_organization)
+    db_session.flush()
+
+    second_membership = OrganizationMember(
+        user_id=user.id,
+        organization_id=second_organization.id,
+        role="agent",
+    )
+    db_session.add(second_membership)
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": payload["email"],
+            "password": payload["password"],
+        },
+    )
+
+    assert response.status_code == 200
+
+    organizations = response.json()["organizations"]
+
+    assert len(organizations) == 2
+
+    organization_names = {
+        organization["name"] for organization in organizations
+    }
+
+    assert organization_names == {
+        "Test Organization",
+        "Second Organization",
+    }
+
+    roles = {
+        organization["name"]: organization["role"]
+        for organization in organizations
+    }
+
+    assert roles["Test Organization"] == "owner"
+    assert roles["Second Organization"] == "agent"
 
 
 def test_register_rejects_whitespace_only_organization_name(client):
