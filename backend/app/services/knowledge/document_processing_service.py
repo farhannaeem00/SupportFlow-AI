@@ -77,16 +77,15 @@ def process_knowledge_document(
         if not file_path.is_file():
             raise FileNotFoundError("Uploaded document file was not found")
 
-        extracted_text = extract_document_text(file_path)
+        extracted_text = extract_document_text(
+        str(file_path),
+        file_path.read_bytes(),
+    )
 
         if not extracted_text or not extracted_text.strip():
             raise ValueError("No readable text was found in the document")
 
-        chunks = chunk_text(
-            extracted_text,
-            chunk_size=settings.document_chunk_size,
-            overlap=settings.document_chunk_overlap,
-        )
+        chunks = chunk_text(extracted_text)
 
         if not chunks:
             raise ValueError("Document did not produce any text chunks")
