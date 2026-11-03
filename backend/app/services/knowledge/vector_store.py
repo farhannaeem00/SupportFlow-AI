@@ -1,4 +1,3 @@
-import re
 from functools import lru_cache
 from pathlib import Path
 from uuid import UUID
@@ -137,6 +136,23 @@ def delete_document_chunks(organization_id, document_id):
             "$and": [
                 {"document_id": str(document_id)},
                 {"organization_id": str(organization_id)},
+            ]
+        }
+    )
+
+def delete_knowledge_base_chunks(
+    organization_id: UUID,
+    knowledge_base_id: UUID,
+) -> None:
+    """Delete all vector chunks belonging to an organization's knowledge base."""
+
+    collection = get_organization_collection(organization_id)
+
+    collection.delete(
+        where={
+            "$and": [
+                {"organization_id": str(organization_id)},
+                {"knowledge_base_id": str(knowledge_base_id)},
             ]
         }
     )

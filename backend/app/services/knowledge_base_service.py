@@ -10,6 +10,13 @@ from app.schemas.knowledge_base import (
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,
 )
+import logging
+from pathlib import Path
+
+from app.config import settings
+from app.services.knowledge.vector_store import delete_knowledge_base_chunks
+
+logger = logging.getLogger(__name__)
 
 
 def create_knowledge_base(
@@ -126,12 +133,58 @@ def delete_knowledge_base(
     organization_id: UUID,
     knowledge_base_id: UUID,
 ) -> None:
-
     knowledge_base = get_knowledge_base(
         db,
         organization_id,
         knowledge_base_id,
     )
 
+    # Collect document file paths before database cascade deletion.
+    documents = list(knowledge_base.documents)
+
+    upload_root = Path(settings.upload_dir).resolve()
+    document_paths = []
+
+    for document in documents:
+        document_path = (
+            upload_root
+            / str(organization_id)
+            / str(knowledge_base_id)
+            / document.stored_filename
+        ).resolve()
+
+        # Never allow cleanup to access files outside the upload directory.
+        if not document_path.is_relative_to(upload_root):
+            logger.error(
+                "Skipped unsafe document path during knowledge base deletion: %s",
+                document_path,
+            )
+            continue
+
+        document_paths.append(document_path)
+
+    # Delete the knowledge base and its related database records.
     db.delete(knowledge_base)
     db.commit()
+
+    # Clean up vectors only after the database commit succeeds.
+    try:
+        delete_knowledge_base_chunks(
+            organization_id,
+            knowledge_base_id,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to delete vectors for knowledge base %s",
+            knowledge_base_id,
+        )
+
+    # Remove uploaded files after the database commit.
+    for document_path in document_paths:
+        try:
+            document_path.unlink(missing_ok=True)
+        except OSError:
+            logger.exception(
+                "Failed to delete uploaded document file: %s",
+                document_path,
+            )
