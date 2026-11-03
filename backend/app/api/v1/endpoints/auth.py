@@ -1,8 +1,9 @@
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.security import create_access_token
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -15,10 +16,33 @@ from app.schemas.auth import (
     RegisterRequest,
     UserResponse,
 )
-from app.services.auth_service import register_user, authenticate_user
+from app.services.auth_rate_limit_service import enforce_auth_rate_limit
+from app.services.auth_service import authenticate_user, register_user
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def enforce_auth_limit(
+    request: Request,
+    db: Session,
+    action: str,
+    limit: int,
+    email: str | None = None,
+) -> None:
+    client_ip = request.client.host if request.client else "unknown"
+
+    client_key = f"ip:{client_ip}"
+
+    if email:
+        client_key = f"{client_key}:email:{email.strip().lower()}"
+
+    enforce_auth_rate_limit(
+        db=db,
+        client_key=client_key,
+        action=action,
+        limit=limit,
+    )
 
 
 def build_auth_response(user: User) -> AuthResponse:
@@ -60,8 +84,16 @@ def build_auth_response(user: User) -> AuthResponse:
 )
 def register(
     payload: RegisterRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
+    enforce_auth_limit(
+        request=request,
+        db=db,
+        action="register",
+        limit=settings.auth_register_rate_limit,
+    )
+
     try:
         user, _ = register_user(
             db=db,
@@ -82,8 +114,17 @@ def register(
 @router.post("/login", response_model=AuthResponse)
 def login(
     payload: LoginRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
+    enforce_auth_limit(
+        request=request,
+        db=db,
+        action="login",
+        limit=settings.auth_login_rate_limit,
+        email=str(payload.email),
+    )
+
     user = authenticate_user(
         db,
         str(payload.email),
@@ -109,9 +150,18 @@ def get_me(
 
 @router.post("/token", tags=["Authentication"])
 def oauth2_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
+    enforce_auth_limit(
+        request=request,
+        db=db,
+        action="token",
+        limit=settings.auth_token_rate_limit,
+        email=form_data.username,
+    )
+
     user = authenticate_user(
         db,
         email=form_data.username,

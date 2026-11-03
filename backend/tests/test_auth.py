@@ -334,3 +334,115 @@ def test_register_rejects_duplicate_email(client):
     assert response.json()["detail"] == (
         "An account with this email already exists"
     )
+
+def test_register_rate_limit(client, monkeypatch):
+    monkeypatch.setattr(settings, "auth_register_rate_limit", 2)
+
+    for index in range(2):
+        response = client.post(
+            "/api/v1/auth/register",
+            json={
+                "full_name": "Test User",
+                "email": f"register{index}@example.com",
+                "password": "TestPassword123!",
+                "organization_name": f"Organization {index}",
+            },
+        )
+        assert response.status_code == 201
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Test User",
+            "email": "register3@example.com",
+            "password": "TestPassword123!",
+            "organization_name": "Organization 3",
+        },
+    )
+
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_login_rate_limit(client, monkeypatch):
+    _, payload = register_test_user(client)
+
+    monkeypatch.setattr(settings, "auth_login_rate_limit", 2)
+
+    login_payload = {
+        "email": payload["email"],
+        "password": "WrongPassword123!",
+    }
+
+    assert client.post(
+        "/api/v1/auth/login", json=login_payload
+    ).status_code == 401
+
+    assert client.post(
+        "/api/v1/auth/login", json=login_payload
+    ).status_code == 401
+
+    response = client.post(
+        "/api/v1/auth/login", json=login_payload
+    )
+
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_oauth2_token_rate_limit(client, monkeypatch):
+    _, payload = register_test_user(client)
+
+    monkeypatch.setattr(settings, "auth_token_rate_limit", 2)
+
+    token_payload = {
+        "username": payload["email"],
+        "password": "WrongPassword123!",
+    }
+
+    assert client.post(
+        "/api/v1/auth/token", data=token_payload
+    ).status_code == 401
+
+    assert client.post(
+        "/api/v1/auth/token", data=token_payload
+    ).status_code == 401
+
+    response = client.post(
+        "/api/v1/auth/token", data=token_payload
+    )
+
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_login_rate_limits_are_independent_per_email(client, monkeypatch):
+    monkeypatch.setattr(settings, "auth_login_rate_limit", 1)
+
+    first_payload = {
+        "email": "first@example.com",
+        "password": "WrongPassword123!",
+    }
+
+    second_payload = {
+        "email": "second@example.com",
+        "password": "WrongPassword123!",
+    }
+
+    first_response = client.post(
+        "/api/v1/auth/login",
+        json=first_payload,
+    )
+    assert first_response.status_code == 401
+
+    blocked_response = client.post(
+        "/api/v1/auth/login",
+        json=first_payload,
+    )
+    assert blocked_response.status_code == 429
+
+    second_response = client.post(
+        "/api/v1/auth/login",
+        json=second_payload,
+    )
+    assert second_response.status_code == 401

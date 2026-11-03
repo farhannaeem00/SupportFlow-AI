@@ -55,6 +55,24 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+        # Authentication rate limits
+    auth_rate_limit_window_seconds: int = Field(
+        default=900,
+        ge=1,
+        le=3600,
+    )
+    auth_register_rate_limit: int = Field(
+        default=5,
+        ge=1,
+    )
+    auth_login_rate_limit: int = Field(
+        default=10,
+        ge=1,
+    )
+    auth_token_rate_limit: int = Field(
+        default=10,
+        ge=1,
+    )
 
 
 @lru_cache
