@@ -1,4 +1,13 @@
 
+from datetime import datetime, timedelta, timezone
+
+from jose import jwt
+from sqlalchemy import select
+
+from app.config import settings
+from app.models import User
+
+
 def register_test_user(client):
     payload = {
         "full_name": "Test User",
@@ -60,6 +69,50 @@ def test_login_invalid_password(client):
     assert response.json()["detail"] == "Incorrect email or password"
 
 
+def test_login_inactive_user(client, db_session):
+    _, payload = register_test_user(client)
+
+    user = db_session.scalar(
+        select(User).where(User.email == payload["email"])
+    )
+
+    user.is_active = False
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": payload["email"],
+            "password": payload["password"],
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Incorrect email or password"
+
+
+def test_login_with_malformed_password_hash(client, db_session):
+    _, payload = register_test_user(client)
+
+    user = db_session.scalar(
+        select(User).where(User.email == payload["email"])
+    )
+
+    user.hashed_password = "invalid-argon2-hash"
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": payload["email"],
+            "password": payload["password"],
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Incorrect email or password"
+
+
 def test_get_current_user_success(client):
     register_response, _ = register_test_user(client)
 
@@ -112,3 +165,46 @@ def test_register_invalid_email(client):
     )
 
     assert response.status_code == 422
+
+def test_get_current_user_with_invalid_token(client):
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": "Bearer invalid.token.value"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_current_user_with_expired_token(client):
+    expired_token = jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=5),
+        },
+        settings.jwt_secret_key,
+        algorithm="HS256",
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {expired_token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_current_user_with_missing_subject(client):
+    token = jwt.encode(
+        {
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.jwt_secret_key,
+        algorithm="HS256",
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401

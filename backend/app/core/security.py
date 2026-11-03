@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerificationError
 from jose import JWTError, jwt
 
 from app.config import settings
@@ -22,7 +22,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed_password: str) -> bool:
     try:
         return password_hasher.verify(hashed_password, password)
-    except VerifyMismatchError:
+    except (VerificationError, InvalidHashError):
         return False
 
 

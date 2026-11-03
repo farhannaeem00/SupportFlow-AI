@@ -8,11 +8,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "SupportFlow AI"
     app_version: str = "1.0.0"
-    debug: bool = True
+    debug: bool = False
 
     database_url: str
-    jwt_secret_key: str
-    jwt_access_token_expire_minutes: int = 30
+    jwt_secret_key: str = Field(min_length=32)
+    jwt_access_token_expire_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=1440,
+    )
 
     upload_dir: str = "storage/uploads"
     max_upload_size_mb: int = 10
