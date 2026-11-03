@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Organization, OrganizationMember, User
 from app.core.security import hash_password, verify_password
+from sqlalchemy.exc import IntegrityError
 
 
 def create_unique_slug(db: Session, name: str) -> str:
@@ -70,6 +71,18 @@ def register_user(
         db.refresh(organization)
 
         return user, organization
+
+    except IntegrityError:
+        db.rollback()
+
+        existing_user = db.scalar(
+            select(User).where(User.email == normalized_email)
+        )
+
+        if existing_user:
+            raise ValueError("An account with this email already exists")
+
+        raise
 
     except Exception:
         db.rollback()

@@ -208,3 +208,70 @@ def test_get_current_user_with_missing_subject(client):
     )
 
     assert response.status_code == 401
+
+def test_register_rejects_whitespace_only_full_name(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "   ",
+            "email": "whitespace@example.com",
+            "password": "TestPassword123!",
+            "organization_name": "Test Organization",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_rejects_whitespace_only_organization_name(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Test User",
+            "email": "whitespace@example.com",
+            "password": "TestPassword123!",
+            "organization_name": "   ",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_rejects_whitespace_only_password(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Test User",
+            "email": "whitespace@example.com",
+            "password": "        ",
+            "organization_name": "Test Organization",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_login_rejects_password_over_maximum_length(client):
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "testuser@example.com",
+            "password": "A" * 129,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_rejects_duplicate_email(client):
+    _, payload = register_test_user(client)
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json=payload,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "An account with this email already exists"
+    )
