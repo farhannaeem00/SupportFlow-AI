@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     String,
@@ -22,6 +23,10 @@ class OrganizationMember(Base):
             "organization_id",
             "user_id",
             name="uq_organization_member",
+        ),
+        CheckConstraint(
+            "role IN ('owner', 'agent')",
+            name="ck_organization_member_valid_role",
         ),
     )
 
