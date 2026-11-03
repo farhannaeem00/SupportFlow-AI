@@ -22,7 +22,6 @@ from app.services.auth_service import authenticate_user, register_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-
 def enforce_auth_limit(
     request: Request,
     db: Session,
@@ -32,17 +31,22 @@ def enforce_auth_limit(
 ) -> None:
     client_ip = request.client.host if request.client else "unknown"
 
-    client_key = f"ip:{client_ip}"
-
-    if email:
-        client_key = f"{client_key}:email:{email.strip().lower()}"
-
+    # Independent IP-based limit.
     enforce_auth_rate_limit(
         db=db,
-        client_key=client_key,
-        action=action,
+        client_key=f"ip:{client_ip}",
+        action=f"{action}_ip" if email else action,
         limit=limit,
     )
+
+    # Independent account-based limit.
+    if email:
+        enforce_auth_rate_limit(
+            db=db,
+            client_key=f"email:{email.strip().lower()}",
+            action=f"{action}_email",
+            limit=limit,
+        )
 
 
 def build_auth_response(user: User) -> AuthResponse:

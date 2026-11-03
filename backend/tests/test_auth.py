@@ -7,6 +7,9 @@ from sqlalchemy import select
 from app.config import settings
 from app.models import Organization, OrganizationMember, User
 
+from fastapi.testclient import TestClient
+from app.main import app
+
 
 def register_test_user(client):
     payload = {
@@ -416,33 +419,84 @@ def test_oauth2_token_rate_limit(client, monkeypatch):
     assert "Retry-After" in response.headers
 
 
-def test_login_rate_limits_are_independent_per_email(client, monkeypatch):
+def test_login_rate_limit_is_shared_across_emails_from_same_ip(
+    client,
+    monkeypatch,
+):
     monkeypatch.setattr(settings, "auth_login_rate_limit", 1)
 
-    first_payload = {
-        "email": "first@example.com",
-        "password": "WrongPassword123!",
-    }
-
-    second_payload = {
-        "email": "second@example.com",
-        "password": "WrongPassword123!",
-    }
-
-    first_response = client.post(
+    first = client.post(
         "/api/v1/auth/login",
-        json=first_payload,
+        json={
+            "email": "first@example.com",
+            "password": "WrongPassword123!",
+        },
     )
-    assert first_response.status_code == 401
+    assert first.status_code == 401
 
-    blocked_response = client.post(
+    second = client.post(
         "/api/v1/auth/login",
-        json=first_payload,
+        json={
+            "email": "second@example.com",
+            "password": "WrongPassword123!",
+        },
     )
-    assert blocked_response.status_code == 429
+    assert second.status_code == 429
 
-    second_response = client.post(
+
+
+
+def test_login_email_rate_limit_is_shared_across_ips(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "auth_login_rate_limit", 1)
+
+    first = client.post(
         "/api/v1/auth/login",
-        json=second_payload,
+        json={
+            "email": "same@example.com",
+            "password": "WrongPassword123!",
+        },
     )
-    assert second_response.status_code == 401
+    assert first.status_code == 401
+
+    # Use a separate client with a different source IP.
+    with TestClient(app, client=("192.0.2.10", 12345)) as other_client:
+        second = other_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "same@example.com",
+                "password": "WrongPassword123!",
+            },
+        )
+
+    assert second.status_code == 429
+
+def test_login_email_rate_limit_is_shared_across_ips(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "auth_login_rate_limit", 1)
+
+    first = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "same@example.com",
+            "password": "WrongPassword123!",
+        },
+    )
+
+    assert first.status_code == 401
+
+    # Simulate a different client IP.
+    with client as test_client:
+        second = test_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "same@example.com",
+                "password": "WrongPassword123!",
+            },
+        )
+
+    assert second.status_code == 429

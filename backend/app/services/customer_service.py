@@ -106,6 +106,7 @@ def update_customer(
         raise
 
 
+
 def deactivate_customer(db: Session, customer: Customer):
     customer.is_active = False
     db.commit()
