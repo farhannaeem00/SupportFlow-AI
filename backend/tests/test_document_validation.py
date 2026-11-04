@@ -1,11 +1,13 @@
 
 import io
 import zipfile
+import uuid
 
 import pytest
 from fastapi import HTTPException
 
 import app.services.knowledge_document_service as service
+from app.services.knowledge_document_service import validate_file
 
 
 def make_docx(entries=None):
@@ -115,5 +117,87 @@ def test_docx_suspicious_compression_ratio_is_rejected(monkeypatch):
 
     with pytest.raises(HTTPException) as exc:
         service.validate_file("document.docx", content)
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "unsafe_name",
+    [
+        "../outside.txt",
+        "/outside.txt",
+        "folder/../outside.txt",
+    ],
+)
+def test_docx_unsafe_archive_paths_are_rejected(unsafe_name):
+    content = make_docx({
+        "[Content_Types].xml": "<Types/>",
+        "word/document.xml": "<document/>",
+        unsafe_name: "malicious content",
+    })
+
+    with pytest.raises(HTTPException) as exc:
+        service.validate_file("document.docx", content)
+
+    assert exc.value.status_code == 400
+
+
+def test_docx_duplicate_archive_entries_are_rejected():
+    buffer = io.BytesIO()
+
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "<document/>")
+        archive.writestr("word/document.xml", "<malicious/>")
+
+    with pytest.raises(HTTPException) as exc:
+        service.validate_file("document.docx", buffer.getvalue())
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "unsafe_filename",
+    [
+        "../outside.txt",
+        "/outside.txt",
+        "folder\\outside.txt",
+        "folder/outside.txt",
+    ],
+)
+def test_stored_document_path_rejects_unsafe_filenames(
+    unsafe_filename,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(service.settings, "upload_dir", str(tmp_path))
+
+    with pytest.raises(HTTPException) as exc:
+        service.get_stored_document_path(
+            uuid.uuid4(),
+            uuid.uuid4(),
+            unsafe_filename,
+        )
+
+    assert exc.value.status_code == 400
+def make_docx_with_raw_backslash():
+    buffer = io.BytesIO()
+
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "<document/>")
+
+        entry = zipfile.ZipInfo("folder/outside.txt")
+        entry.filename = "folder\\outside.txt"
+
+        archive.writestr(entry, "malicious content")
+
+    return buffer.getvalue()
+
+def test_docx_windows_backslash_archive_path_is_rejected():
+    content = make_docx_with_raw_backslash()
+
+    with pytest.raises(HTTPException) as exc:
+        validate_file("malicious.docx", content)
 
     assert exc.value.status_code == 400

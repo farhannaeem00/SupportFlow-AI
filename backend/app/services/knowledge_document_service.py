@@ -1,3 +1,4 @@
+
 import hashlib
 import io
 import logging
@@ -6,7 +7,7 @@ import zipfile
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,9 +16,7 @@ from app.models import KnowledgeBase, KnowledgeDocument
 from app.services.knowledge.vector_store import delete_document_chunks
 
 
-
 logger = logging.getLogger(__name__)
-
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
@@ -29,10 +28,11 @@ CONTENT_TYPES = {
     ),
     ".txt": "text/plain",
 }
+
 # DOCX archive security limits
 MAX_DOCX_ENTRIES = 1000
-MAX_DOCX_TOTAL_UNCOMPRESSED_SIZE = 50 * 1024 * 1024  # 50 MB
-MAX_DOCX_ENTRY_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_DOCX_TOTAL_UNCOMPRESSED_SIZE = 50 * 1024 * 1024
+MAX_DOCX_ENTRY_SIZE = 20 * 1024 * 1024
 MAX_DOCX_COMPRESSION_RATIO = 200
 
 
@@ -42,12 +42,68 @@ def get_upload_root() -> Path:
     return root
 
 
+def get_document_storage_directory(
+    organization_id: UUID,
+    knowledge_base_id: UUID,
+) -> Path:
+    """Return a tenant-scoped directory safely inside the upload root."""
+
+    upload_root = get_upload_root()
+
+    storage_directory = (
+        upload_root / str(organization_id) / str(knowledge_base_id)
+    ).resolve()
+
+    try:
+        storage_directory.relative_to(upload_root)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid document storage directory.",
+        )
+
+    return storage_directory
+
+
+def get_stored_document_path(
+    organization_id: UUID,
+    knowledge_base_id: UUID,
+    stored_filename: str,
+) -> Path:
+    """Resolve a stored filename without allowing directory traversal."""
+
+    if (
+        not stored_filename
+        or Path(stored_filename).name != stored_filename
+        or "/" in stored_filename
+        or "\\" in stored_filename
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid document storage filename.",
+        )
+
+    storage_directory = get_document_storage_directory(
+        organization_id,
+        knowledge_base_id,
+    )
+
+    file_path = (storage_directory / stored_filename).resolve()
+
+    if file_path.parent != storage_directory:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid document storage path.",
+        )
+
+    return file_path
+
+
 def get_knowledge_base(
     db: Session,
     organization_id: UUID,
     knowledge_base_id: UUID,
 ) -> KnowledgeBase:
-
     knowledge_base = db.scalar(
         select(KnowledgeBase).where(
             KnowledgeBase.id == knowledge_base_id,
@@ -65,12 +121,10 @@ def get_knowledge_base(
     return knowledge_base
 
 
-
 def validate_file(
     filename: str,
     content: bytes,
 ) -> tuple[str, str]:
-
     extension = Path(filename).suffix.lower()
 
     configured_extensions = {
@@ -107,7 +161,38 @@ def validate_file(
                 if len(entries) > MAX_DOCX_ENTRIES:
                     raise ValueError("Too many DOCX archive entries")
 
-                filenames = {entry.filename for entry in entries}
+                filenames = set()
+
+                for entry in entries:
+                    entry_name = entry.orig_filename
+
+                    # Reject empty names, absolute paths and Windows paths.
+                    if (
+                        not entry_name
+                        or "\\" in entry_name
+                        or entry_name.startswith("/")
+                    ):
+                        raise ValueError("Unsafe DOCX archive path")
+
+                    # Permit directory entries ending in "/", but validate
+                    # every actual path component.
+                    normalized_name = entry_name.rstrip("/")
+
+                    if not normalized_name:
+                        raise ValueError("Unsafe DOCX archive path")
+
+                    path_parts = normalized_name.split("/")
+
+                    if any(
+                        part in {"", ".", ".."}
+                        for part in path_parts
+                    ):
+                        raise ValueError("Unsafe DOCX archive path")
+
+                    if entry_name in filenames:
+                        raise ValueError("Duplicate DOCX archive entry")
+
+                    filenames.add(entry_name)
 
                 if "[Content_Types].xml" not in filenames:
                     raise ValueError("Invalid DOCX structure")
@@ -122,7 +207,9 @@ def validate_file(
                         continue
 
                     if entry.flag_bits & 0x1:
-                        raise ValueError("Encrypted DOCX entries are not supported")
+                        raise ValueError(
+                            "Encrypted DOCX entries are not supported"
+                        )
 
                     if entry.file_size > MAX_DOCX_ENTRY_SIZE:
                         raise ValueError("DOCX archive entry is too large")
@@ -137,14 +224,18 @@ def validate_file(
 
                     if entry.file_size > 0:
                         if entry.compress_size == 0:
-                            raise ValueError("Invalid DOCX compression size")
+                            raise ValueError(
+                                "Invalid DOCX compression size"
+                            )
 
                         compression_ratio = (
                             entry.file_size / entry.compress_size
                         )
 
                         if compression_ratio > MAX_DOCX_COMPRESSION_RATIO:
-                            raise ValueError("Suspicious DOCX compression ratio")
+                            raise ValueError(
+                                "Suspicious DOCX compression ratio"
+                            )
 
         except (
             zipfile.BadZipFile,
@@ -168,7 +259,6 @@ def validate_file(
     return extension, CONTENT_TYPES[extension]
 
 
-
 async def upload_document(
     db: Session,
     organization_id: UUID,
@@ -176,7 +266,6 @@ async def upload_document(
     user_id: UUID,
     file: UploadFile,
 ) -> KnowledgeDocument:
-
     knowledge_base = get_knowledge_base(
         db,
         organization_id,
@@ -225,15 +314,17 @@ async def upload_document(
     document_id = uuid.uuid4()
     stored_filename = f"{document_id}{extension}"
 
-    storage_directory = (
-        get_upload_root()
-        / str(organization_id)
-        / str(knowledge_base.id)
+    storage_directory = get_document_storage_directory(
+        organization_id,
+        knowledge_base.id,
     )
-
     storage_directory.mkdir(parents=True, exist_ok=True)
 
-    file_path = storage_directory / stored_filename
+    file_path = get_stored_document_path(
+        organization_id,
+        knowledge_base.id,
+        stored_filename,
+    )
 
     document = KnowledgeDocument(
         id=document_id,
@@ -257,6 +348,7 @@ async def upload_document(
 
     except Exception:
         db.rollback()
+
         try:
             file_path.unlink(missing_ok=True)
         except OSError:
@@ -264,6 +356,7 @@ async def upload_document(
                 "Failed to remove uploaded file after database failure: %s",
                 file_path,
             )
+
         raise
 
     return document
@@ -274,7 +367,6 @@ def list_documents(
     organization_id: UUID,
     knowledge_base_id: UUID,
 ) -> list[KnowledgeDocument]:
-
     get_knowledge_base(db, organization_id, knowledge_base_id)
 
     statement = (
@@ -295,7 +387,6 @@ def get_document(
     knowledge_base_id: UUID,
     document_id: UUID,
 ) -> KnowledgeDocument:
-
     get_knowledge_base(db, organization_id, knowledge_base_id)
 
     document = db.scalar(
@@ -328,23 +419,11 @@ def delete_document(
         document_id,
     )
 
-    upload_root = get_upload_root()
-    storage_directory = (
-        upload_root
-        / str(organization_id)
-        / str(knowledge_base_id)
-    ).resolve()
-
-    file_path = (
-        storage_directory / document.stored_filename
-    ).resolve()
-
-    # Ensure the stored file resolves directly inside this knowledge base folder.
-    if file_path.parent != storage_directory:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid document storage path.",
-        )
+    file_path = get_stored_document_path(
+        organization_id,
+        knowledge_base_id,
+        document.stored_filename,
+    )
 
     # Commit the database deletion before touching external resources.
     try:
@@ -354,7 +433,7 @@ def delete_document(
         db.rollback()
         raise
 
-    # Vector cleanup is best-effort; a failure must not undo the DB deletion.
+    # Vector cleanup is best-effort.
     try:
         delete_document_chunks(
             organization_id,
@@ -365,7 +444,7 @@ def delete_document(
             "Failed to delete vectors for document %s in organization %s",
             document_id,
             organization_id,
-    )
+        )
 
     # File cleanup is also best-effort.
     try:
@@ -374,6 +453,6 @@ def delete_document(
         logger.exception(
             "Failed to delete uploaded document file: %s",
             file_path,
-    )
+        )
 
     return {"message": "Document deleted successfully."}
