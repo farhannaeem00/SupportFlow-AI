@@ -2,7 +2,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+)
 
 
 class WidgetConfigResponse(BaseModel):
@@ -16,7 +22,7 @@ class WidgetSessionResponse(BaseModel):
 
 class WidgetConversationCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=150)
-    email: str | None = Field(default=None, max_length=255)
+    email: EmailStr | None = None
     subject: str = Field(
         default="Website support request",
         min_length=1,
@@ -24,9 +30,25 @@ class WidgetConversationCreate(BaseModel):
     )
     message: str = Field(min_length=1, max_length=10000)
 
+    @field_validator("full_name", "subject", "message")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("This field cannot be empty")
+        return value
+
 
 class WidgetMessageCreate(BaseModel):
     message: str = Field(min_length=1, max_length=10000)
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be empty")
+        return value
 
 
 class WidgetMessageResponse(BaseModel):
