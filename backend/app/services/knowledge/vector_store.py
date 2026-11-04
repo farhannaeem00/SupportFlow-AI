@@ -93,7 +93,7 @@ def store_document_chunks(
     embeddings: list[list[float]],
     filename: str,
 ) -> int:
-    """Store document chunks and their embeddings."""
+    """Store document chunks and verify that all expected IDs exist."""
 
     if not chunks:
         if embeddings:
@@ -127,7 +127,24 @@ def store_document_chunks(
         metadatas=metadatas,
     )
 
-    return len(chunks)
+    try:
+        stored_result = collection.get(ids=ids)
+        stored_ids = set(stored_result.get("ids") or [])
+
+        if stored_ids != set(ids):
+            raise RuntimeError(
+                "ChromaDB did not store all expected document chunks"
+            )
+
+    except Exception:
+        try:
+            collection.delete(ids=ids)
+        except Exception:
+            pass
+
+        raise
+
+    return len(chunks) 
 
 
 def search_document_chunks(

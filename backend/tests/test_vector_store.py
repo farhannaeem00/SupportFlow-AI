@@ -16,6 +16,10 @@ class FakeCollection:
     def upsert(self, **kwargs):
         self.upsert_data = kwargs
 
+    def get(self, **kwargs):
+        requested_ids = kwargs["ids"]
+        return {"ids": requested_ids}
+
     def count(self):
         return self.total
 
@@ -230,3 +234,66 @@ def test_delete_knowledge_base_chunks_uses_tenant_filter(fake_collection):
 
     assert {"organization_id": str(organization_id)} in filters
     assert {"knowledge_base_id": str(knowledge_base_id)} in filters
+
+
+def test_store_verifies_all_chunk_ids(fake_collection):
+    document_id = uuid4()
+
+    count = vector_store.store_document_chunks(
+        organization_id=uuid4(),
+        knowledge_base_id=uuid4(),
+        document_id=document_id,
+        chunks=["First chunk", "Second chunk"],
+        embeddings=[[0.1, 0.2], [0.3, 0.4]],
+        filename="manual.pdf",
+    )
+
+    expected_ids = [
+        f"{document_id}_0",
+        f"{document_id}_1",
+    ]
+
+    assert count == 2
+    assert fake_collection.upsert_data["ids"] == expected_ids
+
+
+def test_store_fails_when_chromadb_does_not_store_all_chunks(
+    fake_collection,
+):
+    fake_collection.get = lambda **kwargs: {
+        "ids": kwargs["ids"][:1]
+    }
+
+    with pytest.raises(RuntimeError, match="all expected document chunks"):
+        vector_store.store_document_chunks(
+            organization_id=uuid4(),
+            knowledge_base_id=uuid4(),
+            document_id=uuid4(),
+            chunks=["First chunk", "Second chunk"],
+            embeddings=[[0.1, 0.2], [0.3, 0.4]],
+            filename="manual.pdf",
+        )
+
+    assert fake_collection.deleted is not None
+    assert len(fake_collection.deleted["ids"]) == 2
+
+
+def test_store_fails_and_cleans_up_when_verification_raises(
+    fake_collection,
+):
+    def fail_verification(**kwargs):
+        raise RuntimeError("Simulated ChromaDB read failure")
+
+    fake_collection.get = fail_verification
+
+    with pytest.raises(RuntimeError, match="Simulated ChromaDB read failure"):
+        vector_store.store_document_chunks(
+            organization_id=uuid4(),
+            knowledge_base_id=uuid4(),
+            document_id=uuid4(),
+            chunks=["First chunk"],
+            embeddings=[[0.1, 0.2]],
+            filename="manual.pdf",
+        )
+
+    assert fake_collection.deleted is not None
