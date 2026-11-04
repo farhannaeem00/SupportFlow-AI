@@ -17,11 +17,11 @@ def test_process_knowledge_document_success(monkeypatch, tmp_path):
         knowledge_base_id=knowledge_base_id,
         stored_filename="document.txt",
         original_filename="document.txt",
-        status="pending",
+        status="uploaded",
         error_message=None,
         chunk_count=0,
     )
-
+   
     # Create the uploaded document at its expected storage location.
     document_directory = (
         tmp_path / str(organization_id) / str(knowledge_base_id)
@@ -91,7 +91,7 @@ def test_process_knowledge_document_success(monkeypatch, tmp_path):
         organization_id,
         knowledge_base_id,
         document_id,
-    )
+)
 
     assert document.status == "processed"
     assert document.error_message is None
@@ -126,7 +126,7 @@ def test_process_knowledge_document_handles_extraction_failure(
         knowledge_base_id=knowledge_base_id,
         stored_filename="document.txt",
         original_filename="document.txt",
-        status="pending",
+        status="uploaded",
         error_message=None,
         chunk_count=0,
     )
@@ -191,11 +191,72 @@ def test_process_knowledge_document_handles_extraction_failure(
     assert document.status == "failed"
     assert document.chunk_count == 0
     assert document.error_message == (
-        "Document processing failed. Please check the file "
-        "and try uploading it again."
-    )
+    "Document processing failed. Please check the file and try again."
+)
 
     assert len(deleted_documents) == 2
     assert fake_db.commit_count == 2
+    assert fake_db.rollback_count == 1
+    assert fake_db.closed is True
+
+
+def test_already_processed_document_is_not_processed_again(monkeypatch):
+    organization_id = uuid4()
+    knowledge_base_id = uuid4()
+    document_id = uuid4()
+
+    document = SimpleNamespace(
+        id=document_id,
+        organization_id=organization_id,
+        knowledge_base_id=knowledge_base_id,
+        status="processed",
+        error_message=None,
+        chunk_count=3,
+    )
+
+    class FakeDB:
+        closed = False
+        rollback_count = 0
+
+        def scalar(self, statement):
+            return document
+
+        def rollback(self):
+            self.rollback_count += 1
+
+        def close(self):
+            self.closed = True
+
+    fake_db = FakeDB()
+
+    monkeypatch.setattr(
+        service,
+        "SessionLocal",
+        lambda: fake_db,
+    )
+
+    def unexpected_call(*args, **kwargs):
+        raise AssertionError("Processed document must not be processed again")
+
+    monkeypatch.setattr(
+        service,
+        "delete_document_chunks",
+        unexpected_call,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "generate_embeddings",
+        unexpected_call,
+    )
+
+    service.process_knowledge_document(
+        organization_id,
+        knowledge_base_id,
+        document_id,
+    )
+
+    assert document.status == "processed"
+    assert document.chunk_count == 3
     assert fake_db.rollback_count == 1
     assert fake_db.closed is True
