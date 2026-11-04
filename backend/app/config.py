@@ -1,4 +1,3 @@
-
 from functools import lru_cache
 
 from pydantic import Field
@@ -18,7 +17,6 @@ class Settings(BaseSettings):
         le=1440,
     )
 
-
     upload_dir: str = "storage/uploads"
     max_upload_size_mb: int = 10
     allowed_document_extensions: str = ".pdf,.docx,.txt"
@@ -29,33 +27,27 @@ class Settings(BaseSettings):
     document_chunk_size: int = 1000
     document_chunk_overlap: int = 200
 
-    # Maximum accepted Chroma cosine distance (0 to 2).
+    # Knowledge retrieval
     knowledge_max_distance: float = Field(default=0.7, ge=0.0, le=2.0)
 
-        # Public website widget rate limits
+    # Public website widget rate limits
     widget_rate_limit_window_seconds: int = Field(
         default=60,
         ge=1,
         le=3600,
     )
-    widget_session_rate_limit: int = Field(
-        default=10,
-        ge=1,
-    )
-    widget_conversation_rate_limit: int = Field(
-        default=5,
-        ge=1,
-    )
-    widget_message_rate_limit: int = Field(
-        default=20,
-        ge=1,
-    )
+    widget_session_rate_limit: int = Field(default=10, ge=1)
+    widget_conversation_rate_limit: int = Field(default=5, ge=1)
+    widget_message_rate_limit: int = Field(default=20, ge=1)
+
+    # Document processing
     document_processing_timeout_minutes: int = Field(
-    default=30,
-    ge=1,
-    le=1440,
-)
-        # AI provider reliability
+        default=30,
+        ge=1,
+        le=1440,
+    )
+
+    # AI provider reliability
     ai_provider_timeout_seconds: float = Field(
         default=20.0,
         gt=0,
@@ -72,28 +64,36 @@ class Settings(BaseSettings):
         le=8192,
     )
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-        # Authentication rate limits
+    # Authentication rate limits
     auth_rate_limit_window_seconds: int = Field(
         default=900,
         ge=1,
         le=3600,
     )
-    auth_register_rate_limit: int = Field(
-        default=5,
+    auth_register_rate_limit: int = Field(default=5, ge=1)
+    auth_login_rate_limit: int = Field(default=10, ge=1)
+    auth_token_rate_limit: int = Field(default=10, ge=1)
+
+    # Global API rate limits
+    api_rate_limit_window_seconds: int = Field(
+        default=60,
         ge=1,
+        le=3600,
     )
-    auth_login_rate_limit: int = Field(
-        default=10,
+    api_global_rate_limit: int = Field(default=120, ge=1)
+
+    # Expensive AI analysis rate limits
+    ai_analysis_rate_limit_window_seconds: int = Field(
+        default=3600,
         ge=1,
+        le=86400,
     )
-    auth_token_rate_limit: int = Field(
-        default=10,
-        ge=1,
+    ai_analysis_rate_limit: int = Field(default=10, ge=1)
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
 

@@ -1,4 +1,9 @@
 from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from app.services.auth_rate_limit_service import (
+    enforce_global_api_rate_limit,
+)
 
 from app.api.v1.endpoints import (
     auth,
@@ -10,12 +15,13 @@ from app.api.v1.endpoints import (
     ai_settings,
     knowledge_bases,
     knowledge_documents,
+    knowledge_search,
 )
-from app.api.v1.endpoints import knowledge_search
 
-
-api_router = APIRouter(prefix="/api/v1")
-
+api_router = APIRouter(
+    prefix="/api/v1",
+    dependencies=[Depends(enforce_global_api_rate_limit)],
+)
 api_router.include_router(auth.router)
 api_router.include_router(organizations.router)
 api_router.include_router(team.router)

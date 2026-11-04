@@ -68,6 +68,13 @@ from app.schemas.ai import (
 )
 from typing import Literal
 
+from sqlalchemy import select
+
+from app.models.conversation import Conversation
+from app.services.auth_rate_limit_service import (
+    enforce_ai_analysis_rate_limit,
+)
+
 
 router = APIRouter(
     prefix="/conversations",
@@ -343,6 +350,27 @@ def analyze_conversation(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to analyze conversations.",
         )
+
+    # Verify tenant ownership before consuming the AI rate limit.
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.organization_id == membership.organization_id,
+        )
+    )
+
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        )
+
+    # Limit expensive AI analysis per organization and user.
+    enforce_ai_analysis_rate_limit(
+        db=db,
+        organization_id=str(membership.organization_id),
+        user_id=str(membership.user_id),
+    )
 
     service = ConversationAIService()
 
