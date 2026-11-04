@@ -538,3 +538,21 @@ def test_reject_invalid_conversation_priority_filter(client):
     )
 
     assert response.status_code == 422
+
+def test_cannot_read_messages_of_another_organizations_conversation(client):
+    owner_one = register_owner(client, "messages_owner1@example.com")
+    owner_two = register_owner(client, "messages_owner2@example.com")
+
+    customer = create_test_customer(client, owner_two)
+
+    conversation = create_test_conversation(
+        client, owner_two, customer["id"]
+    )
+    conversation_id = conversation.json()["id"]
+
+    response = client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=auth_headers(owner_one),
+    )
+
+    assert response.status_code == 404
