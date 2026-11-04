@@ -204,7 +204,11 @@ def create_conversation(
         message_content=payload.message,
     )
 
-    messages = get_widget_messages(db, conversation.id)
+    messages = get_widget_messages(
+        db=db,
+        organization_id=organization.id,
+        conversation_id=conversation.id,
+)
 
     process_widget_ai(
     db=db,
@@ -299,7 +303,11 @@ def get_conversation_history(
             detail=str(exc),
         )
 
-    messages = get_widget_messages(db, conversation.id)
+    messages = get_widget_messages(
+        db=db,
+        organization_id=organization.id,
+        conversation_id=conversation.id,
+)
 
     return {
         "id": conversation.id,

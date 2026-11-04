@@ -222,10 +222,15 @@ def get_widget_conversation(
 
 def get_widget_messages(
     db: Session,
+    organization_id: uuid.UUID,
     conversation_id: uuid.UUID,
 ):
     return db.scalars(
         select(Message)
-        .where(Message.conversation_id == conversation_id)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(
+            Message.conversation_id == conversation_id,
+            Conversation.organization_id == organization_id,
+        )
         .order_by(Message.created_at.asc())
     ).all()

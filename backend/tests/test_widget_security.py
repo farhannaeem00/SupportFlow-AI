@@ -359,3 +359,69 @@ def test_expired_widget_session_is_rejected(
     )
 
     assert response.status_code == 401
+
+def test_widget_messages_are_organization_scoped(
+    client,
+    db_session,
+    monkeypatch,
+):
+    from uuid import UUID
+
+    from app.api.v1.endpoints import widget
+    from app.models import Conversation
+    from app.services.widget_service import get_widget_messages
+
+    monkeypatch.setattr(
+        widget,
+        "process_widget_ai",
+        lambda **kwargs: None,
+    )
+
+    organization_one = register_widget_organization(
+        client,
+        "widget_messages_owner_one@example.com",
+    )
+
+    organization_two = register_widget_organization(
+        client,
+        "widget_messages_owner_two@example.com",
+    )
+
+    session_response = create_widget_session(
+        client,
+        organization_one["public_key"],
+    )
+    assert session_response.status_code == 201
+
+    session_token = session_response.json()["session_token"]
+
+    conversation_response = create_widget_conversation(
+        client,
+        organization_one["public_key"],
+        session_token,
+    )
+    assert conversation_response.status_code == 201
+
+    conversation_id = UUID(conversation_response.json()["id"])
+
+    conversation = db_session.get(Conversation, conversation_id)
+    assert conversation is not None
+
+    owner_messages = get_widget_messages(
+        db=db_session,
+        organization_id=UUID(organization_one["id"]),
+        conversation_id=conversation_id,
+    )
+
+    other_organization_messages = get_widget_messages(
+        db=db_session,
+        organization_id=UUID(organization_two["id"]),
+        conversation_id=conversation_id,
+    )
+
+    assert len(owner_messages) >= 1
+    assert all(
+        message.conversation_id == conversation_id
+        for message in owner_messages
+    )
+    assert other_organization_messages == []
