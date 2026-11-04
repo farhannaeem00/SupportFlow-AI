@@ -1,4 +1,6 @@
+
 from functools import lru_cache
+from math import isfinite
 from pathlib import Path
 from uuid import UUID
 
@@ -8,15 +10,26 @@ from app.config import settings
 
 
 @lru_cache(maxsize=1)
+def _get_chroma_client(storage_path: str):
+    """Create and reuse a persistent ChromaDB client for a storage path."""
+
+    path = Path(storage_path)
+    path.mkdir(parents=True, exist_ok=True)
+
+    return chromadb.PersistentClient(path=str(path))
+
+
 def get_chroma_client():
-    """Create and reuse the persistent ChromaDB client."""
+    """Return the cached persistent ChromaDB client."""
 
-    storage_path = Path(settings.vector_store_dir).resolve()
-    storage_path.mkdir(parents=True, exist_ok=True)
+    storage_path = str(Path(settings.vector_store_dir).resolve())
+    return _get_chroma_client(storage_path)
 
-    return chromadb.PersistentClient(
-        path=str(storage_path)
-    )
+
+def reset_chroma_client() -> None:
+    """Clear the cached client, useful when changing storage configuration."""
+
+    _get_chroma_client.cache_clear()
 
 
 def get_collection_name(organization_id: UUID) -> str:
@@ -39,6 +52,39 @@ def get_organization_collection(organization_id: UUID):
     )
 
 
+def _validate_embeddings(
+    chunks: list[str],
+    embeddings: list[list[float]],
+) -> None:
+    """Validate chunk and embedding data before storing."""
+
+    if len(chunks) != len(embeddings):
+        raise ValueError("Chunks and embeddings count must match")
+
+    if any(not isinstance(chunk, str) or not chunk.strip() for chunk in chunks):
+        raise ValueError("Chunks must contain non-empty strings")
+
+    if not embeddings:
+        return
+
+    dimensions = len(embeddings[0])
+
+    if dimensions == 0:
+        raise ValueError("Embeddings cannot be empty")
+
+    for embedding in embeddings:
+        if len(embedding) != dimensions:
+            raise ValueError("All embeddings must have the same dimensions")
+
+        if any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not isfinite(value)
+            for value in embedding
+        ):
+            raise ValueError("Embeddings must contain finite numeric values")
+
+
 def store_document_chunks(
     organization_id: UUID,
     knowledge_base_id: UUID,
@@ -50,10 +96,11 @@ def store_document_chunks(
     """Store document chunks and their embeddings."""
 
     if not chunks:
+        if embeddings:
+            raise ValueError("Chunks and embeddings count must match")
         return 0
 
-    if len(chunks) != len(embeddings):
-        raise ValueError("Chunks and embeddings count must match")
+    _validate_embeddings(chunks, embeddings)
 
     collection = get_organization_collection(organization_id)
 
@@ -84,17 +131,22 @@ def store_document_chunks(
 
 
 def search_document_chunks(
-    organization_id,
-    knowledge_base_id,
-    query_embedding,
-    limit=5,
-):
-    if limit < 1 or limit > 20:
+    organization_id: UUID,
+    knowledge_base_id: UUID,
+    query_embedding: list[float],
+    limit: int = 5,
+) -> list[dict]:
+    """Search for chunks belonging to one organization's knowledge base."""
+
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
         raise ValueError("Search limit must be between 1 and 20")
+
+    _validate_embeddings(["query"], [query_embedding])
 
     collection = get_organization_collection(organization_id)
 
     total_chunks = collection.count()
+
     if total_chunks == 0:
         return []
 
@@ -114,21 +166,32 @@ def search_document_chunks(
     metadatas = results.get("metadatas") or [[]]
     distances = results.get("distances") or [[]]
 
+    if not documents or not metadatas or not distances:
+        return []
+
+    rows = zip(documents[0], metadatas[0], distances[0])
+
     return [
         {
             "text": document,
             "metadata": metadata,
             "distance": distance,
         }
-        for document, metadata, distance in zip(
-            documents[0],
-            metadatas[0],
-            distances[0],
-        )
+        for document, metadata, distance in rows
+        if isinstance(document, str)
+        and isinstance(metadata, dict)
+        and isinstance(distance, (int, float))
+        and not isinstance(distance, bool)
+        and isfinite(distance)
     ]
 
 
-def delete_document_chunks(organization_id, document_id):
+def delete_document_chunks(
+    organization_id: UUID,
+    document_id: UUID,
+) -> None:
+    """Delete all chunks belonging to one organization's document."""
+
     collection = get_organization_collection(organization_id)
 
     collection.delete(
@@ -139,6 +202,7 @@ def delete_document_chunks(organization_id, document_id):
             ]
         }
     )
+
 
 def delete_knowledge_base_chunks(
     organization_id: UUID,
