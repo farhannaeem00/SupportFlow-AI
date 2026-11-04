@@ -1,8 +1,8 @@
-
 import os
 
 from groq import Groq
 
+from app.config import settings
 from app.services.ai.base import AIProvider
 
 
@@ -11,7 +11,17 @@ class GroqProvider(AIProvider):
 
     def __init__(self) -> None:
         api_key = os.getenv("GROQ_API_KEY")
-        self.client = Groq(api_key=api_key) if api_key else None
+
+        self.client = (
+            Groq(
+                api_key=api_key,
+                timeout=settings.ai_provider_timeout_seconds,
+                max_retries=settings.ai_provider_max_retries,
+            )
+            if api_key
+            else None
+        )
+
         self.model = os.getenv(
             "GROQ_MODEL",
             "llama-3.3-70b-versatile",
@@ -32,13 +42,15 @@ class GroqProvider(AIProvider):
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=800,
-            timeout=20.0,
+            max_tokens=settings.ai_provider_max_tokens,
         )
+
+        if not completion.choices:
+            raise RuntimeError("Groq returned no completion choices.")
 
         content = completion.choices[0].message.content
 
-        if not content or not content.strip():
+        if not isinstance(content, str) or not content.strip():
             raise RuntimeError("Groq returned an empty response.")
 
         return content.strip()

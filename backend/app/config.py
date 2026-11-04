@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         le=1440,
     )
 
+
     upload_dir: str = "storage/uploads"
     max_upload_size_mb: int = 10
     allowed_document_extensions: str = ".pdf,.docx,.txt"
@@ -54,6 +55,22 @@ class Settings(BaseSettings):
     ge=1,
     le=1440,
 )
+        # AI provider reliability
+    ai_provider_timeout_seconds: float = Field(
+        default=20.0,
+        gt=0,
+        le=120,
+    )
+    ai_provider_max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+    )
+    ai_provider_max_tokens: int = Field(
+        default=800,
+        ge=1,
+        le=8192,
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
