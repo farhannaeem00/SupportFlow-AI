@@ -49,6 +49,11 @@ class Settings(BaseSettings):
         default=20,
         ge=1,
     )
+    document_processing_timeout_minutes: int = Field(
+    default=30,
+    ge=1,
+    le=1440,
+)
 
     model_config = SettingsConfigDict(
         env_file=".env",

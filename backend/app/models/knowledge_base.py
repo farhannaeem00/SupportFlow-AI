@@ -152,6 +152,10 @@ class KnowledgeDocument(Base):
         nullable=False,
         index=True,
     )
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+    DateTime(timezone=True),
+    nullable=True,
+)
 
     error_message: Mapped[str | None] = mapped_column(
         Text,

@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 from uuid import UUID
-
+from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.config import settings
@@ -77,6 +77,7 @@ def _claim_document(
         return None
 
     document.status = "processing"
+    document.processing_started_at = datetime.now(timezone.utc)
     document.error_message = None
     document.chunk_count = 0
 
@@ -168,6 +169,7 @@ def process_knowledge_document(
 
         document.chunk_count = chunk_count
         document.status = "processed"
+        document.processing_started_at = None
         document.error_message = None
 
         db.commit()
@@ -212,7 +214,7 @@ def process_knowledge_document(
 
             if failed_document and failed_document.status == "processing":
                 failed_document.status = "failed"
-                failed_document.chunk_count = 0
+                failed_document.processing_started_at = None
                 failed_document.error_message = (
                     "Document processing failed. Please check the file "
                     "and try again."
