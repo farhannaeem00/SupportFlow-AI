@@ -40,13 +40,6 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AuthOrganizationResponse(BaseModel):
-    id: UUID
-    name: str
-    slug: str
-    public_key: str
-    role: str
-
 class OrganizationResponse(BaseModel):
     id: UUID
     name: str
@@ -70,4 +63,3 @@ class AuthResponse(BaseModel):
     user: UserResponse
     organization: OrganizationResponse | None = None
     organizations: list[AuthOrganizationResponse]
-
