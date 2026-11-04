@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import KnowledgeBase
+from app.models import KnowledgeBase, KnowledgeDocument
 from app.services.knowledge.embedding_service import generate_query_embedding
 from app.services.knowledge.vector_store import search_document_chunks
 
@@ -18,7 +18,7 @@ def retrieve_knowledge(
     query: str,
     limit: int = 5,
 ) -> list[dict]:
-    """Retrieve only knowledge chunks within the configured distance threshold."""
+    """Retrieve relevant chunks from successfully processed documents."""
 
     query = query.strip()
 
@@ -54,6 +54,18 @@ def retrieve_knowledge(
             detail="Active knowledge base not found",
         )
 
+    # Only documents that completed processing may contribute knowledge.
+    processed_document_ids = db.scalars(
+        select(KnowledgeDocument.id).where(
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+            KnowledgeDocument.status == "processed",
+        )
+    ).all()
+
+    if not processed_document_ids:
+        return []
+
     query_embedding = generate_query_embedding(query)
 
     results = search_document_chunks(
@@ -61,6 +73,7 @@ def retrieve_knowledge(
         knowledge_base_id=knowledge_base_id,
         query_embedding=query_embedding,
         limit=limit,
+        document_ids=processed_document_ids,
     )
 
     relevant_results = []
@@ -68,8 +81,10 @@ def retrieve_knowledge(
     for result in results:
         distance = result.get("distance")
 
-        # Ignore malformed results rather than passing uncertain matches to the AI.
         if not isinstance(distance, (int, float)):
+            continue
+
+        if isinstance(distance, bool):
             continue
 
         if distance < 0 or distance > 2:

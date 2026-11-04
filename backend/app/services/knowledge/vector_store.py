@@ -135,6 +135,7 @@ def search_document_chunks(
     knowledge_base_id: UUID,
     query_embedding: list[float],
     limit: int = 5,
+    document_ids: list[UUID] | None = None,
 ) -> list[dict]:
     """Search for chunks belonging to one organization's knowledge base."""
 
@@ -150,6 +151,10 @@ def search_document_chunks(
     if total_chunks == 0:
         return []
 
+    if document_ids is not None:
+        if not document_ids:
+            return []
+
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=min(limit, total_chunks),
@@ -157,6 +162,20 @@ def search_document_chunks(
             "$and": [
                 {"organization_id": str(organization_id)},
                 {"knowledge_base_id": str(knowledge_base_id)},
+                *(
+                    [
+                        {
+                            "document_id": {
+                                "$in": [
+                                    str(document_id)
+                                    for document_id in document_ids
+                                ]
+                            }
+                        }
+                    ]
+                    if document_ids is not None
+                    else []
+                ),
             ]
         },
         include=["documents", "metadatas", "distances"],

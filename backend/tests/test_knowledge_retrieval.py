@@ -5,6 +5,7 @@ import pytest
 
 from app.config import settings
 from app.services.knowledge import retrieval_service
+from types import SimpleNamespace
 
 
 @pytest.fixture
@@ -15,6 +16,11 @@ def retrieval_context(monkeypatch):
     class FakeDB:
         def scalar(self, query):
             return object()
+
+        def scalars(self, query):
+            return SimpleNamespace(
+                all=lambda: [uuid4()]
+            )
 
     monkeypatch.setattr(
         retrieval_service,
@@ -146,3 +152,69 @@ def test_retrieval_rejects_invalid_distances(
     )
 
     assert retrieved == []
+
+
+def test_retrieval_returns_empty_when_no_processed_documents(
+    monkeypatch,
+    retrieval_context,
+):
+    monkeypatch.setattr(
+        retrieval_context["db"],
+        "scalars",
+        lambda query: SimpleNamespace(all=lambda: []),
+    )
+
+    def unexpected_search(**kwargs):
+        raise AssertionError(
+            "ChromaDB must not be queried without processed documents"
+        )
+
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_document_chunks",
+        unexpected_search,
+    )
+
+    retrieved = run_retrieval(
+        monkeypatch,
+        retrieval_context,
+        [],
+    )
+
+    assert retrieved == []
+
+
+def test_retrieval_searches_only_processed_document_ids(
+    monkeypatch,
+    retrieval_context,
+):
+    processed_document_ids = [uuid4(), uuid4()]
+    captured = {}
+
+    monkeypatch.setattr(
+        retrieval_context["db"],
+        "scalars",
+        lambda query: SimpleNamespace(
+            all=lambda: processed_document_ids
+        ),
+    )
+
+    def fake_search(**kwargs):
+        captured.update(kwargs)
+        return [make_result(0.2)]
+
+    monkeypatch.setattr(
+        retrieval_service,
+        "search_document_chunks",
+        fake_search,
+    )
+
+    retrieved = retrieval_service.retrieve_knowledge(
+        db=retrieval_context["db"],
+        organization_id=retrieval_context["organization_id"],
+        knowledge_base_id=retrieval_context["knowledge_base_id"],
+        query="What is your refund policy?",
+    )
+
+    assert len(retrieved) == 1
+    assert captured["document_ids"] == processed_document_ids
