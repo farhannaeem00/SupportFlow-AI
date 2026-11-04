@@ -46,10 +46,25 @@ def create_access_token(user_id: UUID) -> str:
 
 def decode_access_token(token: str) -> dict:
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             settings.jwt_secret_key,
             algorithms=[ALGORITHM],
         )
-    except JWTError as exc:
+
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid token payload")
+
+        if not isinstance(payload.get("sub"), str) or not payload["sub"].strip():
+            raise ValueError("Missing or invalid subject claim")
+
+        if not isinstance(payload.get("jti"), str) or not payload["jti"].strip():
+            raise ValueError("Missing or invalid token identifier")
+
+        if "exp" not in payload:
+            raise ValueError("Missing expiration claim")
+
+        return payload
+
+    except (JWTError, TypeError, ValueError) as exc:
         raise ValueError("Invalid or expired access token") from exc

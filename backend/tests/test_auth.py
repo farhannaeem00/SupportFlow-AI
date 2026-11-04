@@ -500,3 +500,76 @@ def test_login_email_rate_limit_is_shared_across_ips(
         )
 
     assert second.status_code == 429
+
+def test_get_current_user_with_token_missing_jti(client):
+    token = jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.jwt_secret_key,
+        algorithm="HS256",
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_current_user_with_token_missing_exp(client):
+    token = jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "jti": "test-token-id",
+        },
+        settings.jwt_secret_key,
+        algorithm="HS256",
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_current_user_with_empty_subject(client):
+    token = jwt.encode(
+        {
+            "sub": "",
+            "jti": "test-token-id",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.jwt_secret_key,
+        algorithm="HS256",
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_current_user_with_wrong_signing_secret(client):
+    token = jwt.encode(
+        {
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "jti": "test-token-id",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        "a-different-signing-secret-that-is-long-enough",
+        algorithm="HS256",
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
