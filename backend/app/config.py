@@ -46,6 +46,22 @@ class Settings(BaseSettings):
         ge=1,
         le=1440,
     )
+        # Password reset
+    password_reset_token_expire_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=1440,
+    )
+    password_reset_rate_limit: int = Field(default=5, ge=1)
+
+    # Password reset email
+    password_reset_frontend_url: str = "http://localhost:5173/reset-password"
+
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
 
     # AI provider reliability
     ai_provider_timeout_seconds: float = Field(

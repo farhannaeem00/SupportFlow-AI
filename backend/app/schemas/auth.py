@@ -63,3 +63,18 @@ class AuthResponse(BaseModel):
     user: UserResponse
     organization: OrganizationResponse | None = None
     organizations: list[AuthOrganizationResponse]
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Password cannot contain only whitespace")
+        return value

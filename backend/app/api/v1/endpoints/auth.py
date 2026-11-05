@@ -19,7 +19,22 @@ from app.schemas.auth import (
 from app.services.auth_rate_limit_service import enforce_auth_rate_limit
 from app.services.auth_service import authenticate_user, register_user
 
+import logging
+from urllib.parse import urlencode
 
+from sqlalchemy import select
+
+from app.schemas.auth import (
+    PasswordResetRequest,
+    PasswordResetConfirmRequest,
+)
+from app.services.email_service import send_password_reset_email
+from app.services.password_reset_service import (
+    create_password_reset_token,
+    reset_user_password,
+)
+
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 def enforce_auth_limit(
@@ -182,4 +197,82 @@ def oauth2_token(
     return {
         "access_token": create_access_token(user.id),
         "token_type": "bearer",
+    }
+
+@router.post("/password-reset/request")
+def request_password_reset(
+    payload: PasswordResetRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    normalized_email = str(payload.email).strip().lower()
+
+    enforce_auth_limit(
+        request=request,
+        db=db,
+        action="password_reset",
+        limit=settings.password_reset_rate_limit,
+        email=normalized_email,
+    )
+
+    user = db.scalar(
+        select(User).where(User.email == normalized_email)
+    )
+
+    if user and user.is_active:
+        raw_token = create_password_reset_token(db, user)
+
+        separator = (
+            "&"
+            if "?" in settings.password_reset_frontend_url
+            else "?"
+        )
+
+        reset_url = (
+            f"{settings.password_reset_frontend_url}"
+            f"{separator}{urlencode({'token': raw_token})}"
+        )
+
+        try:
+            send_password_reset_email(user.email, reset_url)
+        except Exception:
+            logger.exception(
+                "Password reset email delivery failed for user %s",
+                user.id,
+            )
+
+            # Local development only. Never log reset links in production.
+            if settings.debug:
+                logger.warning(
+                    "Development password reset URL: %s",
+                    reset_url,
+                )
+
+    return {
+        "message": (
+            "If an account exists with that email, "
+            "password reset instructions will be sent."
+        )
+    }
+
+
+@router.post("/password-reset/confirm")
+def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    db: Session = Depends(get_db),
+):
+    success = reset_user_password(
+        db=db,
+        token=payload.token,
+        new_password=payload.new_password,
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired password reset token.",
+        )
+
+    return {
+        "message": "Password reset successfully. You can now sign in."
     }
