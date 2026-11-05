@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import KnowledgeBase, KnowledgeDocument
+from app.services.audit_log_service import record_audit_log
 from app.services.knowledge.vector_store import delete_document_chunks
 
 
@@ -343,6 +344,19 @@ async def upload_document(
         file_path.write_bytes(content)
 
         db.add(document)
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=user_id,
+            action="knowledge_document_uploaded",
+            resource_type="knowledge_document",
+            resource_id=document.id,
+            details={
+                "knowledge_base_id": str(knowledge_base.id),
+                "content_type": content_type,
+                "file_size": len(content),
+            },
+        )
         db.commit()
         db.refresh(document)
 
@@ -423,6 +437,7 @@ def delete_document(
     organization_id: UUID,
     knowledge_base_id: UUID,
     document_id: UUID,
+    actor_id: UUID,
 ) -> dict[str, str]:
     document = get_document(
         db,
@@ -437,8 +452,22 @@ def delete_document(
         document.stored_filename,
     )
 
-    # Commit the database deletion before touching external resources.
+    # Record the audit event in the same transaction as deletion.
     try:
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="knowledge_document_deleted",
+            resource_type="knowledge_document",
+            resource_id=document.id,
+            details={
+                "knowledge_base_id": str(knowledge_base_id),
+                "content_type": document.content_type,
+                "file_size": document.file_size,
+            },
+        )
+
         db.delete(document)
         db.commit()
     except Exception:

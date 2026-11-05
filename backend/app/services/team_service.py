@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import hash_password
 from app.models import Organization, OrganizationMember, User
-
+from app.services.audit_log_service import record_audit_log
 
 VALID_ROLES = {"owner", "agent"}
 
@@ -26,6 +26,7 @@ def list_team_members(db: Session, organization_id):
 def add_team_member(
     db: Session,
     organization_id,
+    actor_id,
     full_name: str,
     email: str,
     password: str,
@@ -61,6 +62,19 @@ def add_team_member(
         )
 
         db.add(membership)
+        db.flush()
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="team_member_invited",
+            resource_type="team_member",
+            resource_id=membership.id,
+            details={
+                "role": role,
+                "user_id": str(user.id),
+            },
+        )
         db.commit()
         db.refresh(membership)
 
@@ -90,6 +104,7 @@ def update_member_role(
     db: Session,
     organization_id,
     member_id,
+    actor_id,
     new_role: str,
 ):
     new_role = new_role.strip().lower()
@@ -111,6 +126,11 @@ def update_member_role(
         if not membership:
             return None
 
+        old_role = membership.role
+
+        if old_role == new_role:
+            return membership
+
         if membership.role == "owner" and new_role != "owner":
             owner_count = db.scalar(
                 select(func.count())
@@ -126,6 +146,19 @@ def update_member_role(
                     "An organization must have at least one owner"
                 )
 
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="team_member_role_changed",
+            resource_type="team_member",
+            resource_id=membership.id,
+            details={
+                "old_role": old_role,
+                "new_role": new_role,
+                "user_id": str(membership.user_id),
+            },
+        )
         membership.role = new_role
 
         db.commit()
@@ -178,6 +211,18 @@ def remove_team_member(
                     "An organization must have at least one owner"
                 )
 
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=current_user_id,
+            action="team_member_removed",
+            resource_type="team_member",
+            resource_id=membership.id,
+            details={
+                "role": membership.role,
+                "user_id": str(membership.user_id),
+            },
+        )
         db.delete(membership)
         db.commit()
 

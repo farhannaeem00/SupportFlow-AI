@@ -3,6 +3,10 @@ from uuid import uuid4
 
 from app.models import KnowledgeBase, KnowledgeDocument
 
+from sqlalchemy import select
+
+from app.models import AuditLog, User
+
 
 def register_owner(client, email):
     response = client.post(
@@ -225,3 +229,91 @@ def test_knowledge_document_list_rejects_another_organizations_kb(
     )
 
     assert response.status_code == 404
+
+
+def test_knowledge_base_operations_create_audit_logs(
+    client,
+    db_session,
+    monkeypatch,
+):
+    import app.services.knowledge_base_service as service
+
+    monkeypatch.setattr(
+        service,
+        "delete_knowledge_base_chunks",
+        lambda *args: None,
+    )
+
+    owner = register_owner(client, "kb_audit@example.com")
+
+    owner_user = db_session.scalar(
+        select(User).where(User.email == "kb_audit@example.com")
+    )
+
+    # Create.
+    create_response = client.post(
+        "/api/v1/knowledge-bases",
+        headers=auth_headers(owner),
+        json={
+            "name": "Audit Test KB",
+            "description": "Initial description",
+        },
+    )
+
+    assert create_response.status_code == 201
+    knowledge_base_id = create_response.json()["id"]
+
+    # Update.
+    update_response = client.patch(
+        f"/api/v1/knowledge-bases/{knowledge_base_id}",
+        headers=auth_headers(owner),
+        json={"name": "Updated Audit Test KB"},
+    )
+
+    assert update_response.status_code == 200
+
+    # Same value must not create another audit record.
+    unchanged_response = client.patch(
+        f"/api/v1/knowledge-bases/{knowledge_base_id}",
+        headers=auth_headers(owner),
+        json={"name": "Updated Audit Test KB"},
+    )
+
+    assert unchanged_response.status_code == 200
+
+    # Delete.
+    delete_response = client.delete(
+        f"/api/v1/knowledge-bases/{knowledge_base_id}",
+        headers=auth_headers(owner),
+    )
+
+    assert delete_response.status_code == 204
+
+    logs = db_session.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.organization_id == owner["organization_id"],
+            AuditLog.resource_id == knowledge_base_id,
+        )
+        .order_by(AuditLog.created_at.asc())
+    ).all()
+
+    assert [log.action for log in logs] == [
+        "knowledge_base_created",
+        "knowledge_base_updated",
+        "knowledge_base_deleted",
+    ]
+
+    assert all(
+        log.resource_type == "knowledge_base"
+        for log in logs
+    )
+
+    assert all(
+        log.actor_id == owner_user.id
+        for log in logs
+    )
+
+    assert logs[0].details["name"] == "Audit Test KB"
+    assert logs[1].details["updated_fields"] == ["name"]
+    assert logs[2].details["name"] == "Updated Audit Test KB"

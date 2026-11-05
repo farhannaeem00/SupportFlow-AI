@@ -54,6 +54,7 @@ def invite_team_member(
         new_member = add_team_member(
             db=db,
             organization_id=membership.organization_id,
+            actor_id=membership.user_id,
             full_name=payload.full_name,
             email=payload.email,
             password=payload.password,
@@ -80,6 +81,7 @@ def change_member_role(
             db,
             membership.organization_id,
             member_id,
+            membership.user_id,
             payload.role,
         )
 

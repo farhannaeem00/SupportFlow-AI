@@ -58,5 +58,6 @@ def patch_ai_settings(
     return update_ai_settings(
         db,
         membership.organization_id,
+        membership.user_id,
         data,
     )

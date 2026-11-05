@@ -14,6 +14,7 @@ from app.schemas.knowledge_base import (
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,
 )
+from app.services.audit_log_service import record_audit_log
 from app.services.knowledge.vector_store import (
     delete_knowledge_base_chunks,
 )
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 def create_knowledge_base(
     db: Session,
     organization_id: UUID,
+    actor_id: UUID,
     data: KnowledgeBaseCreate,
 ) -> KnowledgeBase:
 
@@ -40,6 +42,16 @@ def create_knowledge_base(
     db.add(knowledge_base)
 
     try:
+        db.flush()
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="knowledge_base_created",
+            resource_type="knowledge_base",
+            resource_id=knowledge_base.id,
+            details={"name": knowledge_base.name},
+        )
         db.commit()
         db.refresh(knowledge_base)
     except IntegrityError:
@@ -99,6 +111,7 @@ def update_knowledge_base(
     db: Session,
     organization_id: UUID,
     knowledge_base_id: UUID,
+    actor_id: UUID,
     data: KnowledgeBaseUpdate,
 ) -> KnowledgeBase:
 
@@ -119,8 +132,25 @@ def update_knowledge_base(
                 detail="Knowledge base name cannot be empty",
             )
 
+    changed_fields = []
+
     for field, value in updates.items():
-        setattr(knowledge_base, field, value)
+        if getattr(knowledge_base, field) != value:
+            setattr(knowledge_base, field, value)
+            changed_fields.append(field)
+
+    if changed_fields:
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="knowledge_base_updated",
+            resource_type="knowledge_base",
+            resource_id=knowledge_base.id,
+            details={
+                "updated_fields": sorted(changed_fields),
+            },
+        )
 
     try:
         db.commit()
@@ -139,6 +169,7 @@ def delete_knowledge_base(
     db: Session,
     organization_id: UUID,
     knowledge_base_id: UUID,
+    actor_id: UUID,
 ) -> None:
 
     knowledge_base = get_knowledge_base(
@@ -148,6 +179,19 @@ def delete_knowledge_base(
     )
 
     documents = list(knowledge_base.documents)
+
+    record_audit_log(
+        db,
+        organization_id=organization_id,
+        actor_id=actor_id,
+        action="knowledge_base_deleted",
+        resource_type="knowledge_base",
+        resource_id=knowledge_base.id,
+        details={
+            "name": knowledge_base.name,
+            "document_count": len(documents),
+        },
+    )
 
     upload_root = Path(settings.upload_dir).resolve()
     document_paths = []

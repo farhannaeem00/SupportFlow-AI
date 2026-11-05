@@ -93,6 +93,7 @@ def create_knowledge_base(
     knowledge_base = knowledge_base_service.create_knowledge_base(
         db,
         membership.organization_id,
+        membership.user_id,
         data,
     )
 
@@ -157,6 +158,7 @@ def update_knowledge_base(
         db,
         membership.organization_id,
         knowledge_base_id,
+        membership.user_id,
         data,
     )
 
@@ -178,4 +180,5 @@ def delete_knowledge_base(
         db,
         membership.organization_id,
         knowledge_base_id,
+        membership.user_id,
     )

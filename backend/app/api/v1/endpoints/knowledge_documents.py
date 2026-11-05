@@ -122,4 +122,5 @@ def delete_document(
         membership.organization_id,
         knowledge_base_id,
         document_id,
+        membership.user_id,
     )

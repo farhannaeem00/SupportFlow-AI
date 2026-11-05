@@ -1,6 +1,8 @@
 
 from app.models.user import User
 import uuid
+from sqlalchemy import select
+from app.models.audit_log import AuditLog
 def register_owner(client, email):
     response = client.post(
         "/api/v1/auth/register",
@@ -556,3 +558,116 @@ def test_cannot_read_messages_of_another_organizations_conversation(client):
     )
 
     assert response.status_code == 404
+
+def test_conversation_changes_create_audit_logs(client, db_session):
+    owner = register_owner(client, "audit_conversation@example.com")
+    customer = create_test_customer(client, owner)
+    agent_id = create_test_agent(client, owner)
+
+    conversation = create_test_conversation(
+        client,
+        owner,
+        customer["id"],
+    )
+    conversation_id = conversation.json()["id"]
+
+    assignment_response = client.patch(
+        f"/api/v1/conversations/{conversation_id}/assignment",
+        headers=auth_headers(owner),
+        json={"assigned_to_id": agent_id},
+    )
+    assert assignment_response.status_code == 200
+
+    status_response = client.patch(
+        f"/api/v1/conversations/{conversation_id}/status",
+        headers=auth_headers(owner),
+        json={"status": "pending"},
+    )
+    assert status_response.status_code == 200
+
+    priority_response = client.patch(
+        f"/api/v1/conversations/{conversation_id}/priority",
+        headers=auth_headers(owner),
+        json={"priority": "urgent"},
+    )
+    assert priority_response.status_code == 200
+
+    audit_logs = db_session.scalars(
+        select(AuditLog).where(
+            AuditLog.organization_id == uuid.UUID(owner["organization_id"]),
+            AuditLog.resource_id == uuid.UUID(conversation_id),
+        )
+    ).all()
+
+    assert len(audit_logs) == 3
+
+    logs_by_action = {
+        log.action: log
+        for log in audit_logs
+    }
+
+    assert set(logs_by_action) == {
+        "conversation_assigned",
+        "conversation_status_changed",
+        "conversation_priority_changed",
+    }
+
+    for log in audit_logs:
+        assert log.actor_id == uuid.UUID(owner["user_id"])
+        assert log.resource_type == "conversation"
+
+    assert logs_by_action["conversation_assigned"].details == {
+        "old_assigned_to_id": None,
+        "new_assigned_to_id": agent_id,
+    }
+
+    assert logs_by_action["conversation_status_changed"].details == {
+        "old_status": "open",
+        "new_status": "pending",
+    }
+
+    assert logs_by_action["conversation_priority_changed"].details == {
+        "old_priority": "normal",
+        "new_priority": "urgent",
+    }
+
+def test_unchanged_or_failed_conversation_changes_create_no_audit_logs(
+    client,
+    db_session,
+):
+    owner_one = register_owner(client, "audit_no_change1@example.com")
+    owner_two = register_owner(client, "audit_no_change2@example.com")
+
+    customer = create_test_customer(client, owner_one)
+
+    conversation = create_test_conversation(
+        client,
+        owner_one,
+        customer["id"],
+    )
+    conversation_id = conversation.json()["id"]
+
+    # Unchanged status must not generate an audit record.
+    unchanged_response = client.patch(
+        f"/api/v1/conversations/{conversation_id}/status",
+        headers=auth_headers(owner_one),
+        json={"status": "open"},
+    )
+    assert unchanged_response.status_code == 200
+
+    # Assignment to a user from another organization must fail.
+    failed_response = client.patch(
+        f"/api/v1/conversations/{conversation_id}/assignment",
+        headers=auth_headers(owner_one),
+        json={"assigned_to_id": owner_two["user_id"]},
+    )
+    assert failed_response.status_code == 422
+
+    audit_logs = db_session.scalars(
+        select(AuditLog).where(
+            AuditLog.organization_id == uuid.UUID(owner_one["organization_id"]),
+            AuditLog.resource_id == uuid.UUID(conversation_id),
+        )
+    ).all()
+
+    assert audit_logs == []

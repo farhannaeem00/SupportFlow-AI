@@ -1,4 +1,3 @@
-from fastapi import APIRouter
 from fastapi import APIRouter, Depends
 
 from app.services.auth_rate_limit_service import (
@@ -16,12 +15,14 @@ from app.api.v1.endpoints import (
     knowledge_bases,
     knowledge_documents,
     knowledge_search,
+    audit_logs,
 )
 
 api_router = APIRouter(
     prefix="/api/v1",
     dependencies=[Depends(enforce_global_api_rate_limit)],
 )
+
 api_router.include_router(auth.router)
 api_router.include_router(organizations.router)
 api_router.include_router(team.router)
@@ -32,3 +33,4 @@ api_router.include_router(ai_settings.router)
 api_router.include_router(knowledge_bases.router)
 api_router.include_router(knowledge_documents.router)
 api_router.include_router(knowledge_search.router)
+api_router.include_router(audit_logs.router)

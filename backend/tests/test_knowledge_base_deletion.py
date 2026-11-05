@@ -13,6 +13,7 @@ import app.services.knowledge_base_service as service
 def deletion_setup(tmp_path, monkeypatch):
     organization_id = "org-test"
     knowledge_base_id = "kb-test"
+    actor_id = "actor-test"
 
     upload_root = tmp_path / "uploads"
     kb_directory = (
@@ -31,6 +32,7 @@ def deletion_setup(tmp_path, monkeypatch):
 
     knowledge_base = SimpleNamespace(
         id=knowledge_base_id,
+        name="Knowledge Base",
         documents=[document],
     )
 
@@ -49,6 +51,7 @@ def deletion_setup(tmp_path, monkeypatch):
     return SimpleNamespace(
         organization_id=organization_id,
         knowledge_base_id=knowledge_base_id,
+        actor_id=actor_id,
         upload_root=upload_root,
         document_file=document_file,
         knowledge_base=knowledge_base,
@@ -66,6 +69,7 @@ def test_delete_knowledge_base_removes_database_vectors_and_files(
         setup.db,
         setup.organization_id,
         setup.knowledge_base_id,
+        setup.actor_id,
     )
 
     setup.db.delete.assert_called_once_with(setup.knowledge_base)
@@ -90,6 +94,7 @@ def test_delete_knowledge_base_does_not_cleanup_if_database_commit_fails(
             setup.db,
             setup.organization_id,
             setup.knowledge_base_id,
+            setup.actor_id,
         )
 
     setup.vector_cleanup.assert_not_called()
@@ -108,6 +113,7 @@ def test_delete_knowledge_base_logs_vector_cleanup_failure(
             setup.db,
             setup.organization_id,
             setup.knowledge_base_id,
+            setup.actor_id,
         )
 
     setup.db.commit.assert_called_once()
@@ -136,6 +142,7 @@ def test_delete_knowledge_base_logs_file_cleanup_failure(
             setup.db,
             setup.organization_id,
             setup.knowledge_base_id,
+            setup.actor_id,
         )
 
     setup.db.commit.assert_called_once()
@@ -164,6 +171,7 @@ def test_delete_knowledge_base_rejects_unsafe_file_path(
             setup.db,
             setup.organization_id,
             setup.knowledge_base_id,
+            setup.actor_id,
         )
 
     assert outside_file.exists()

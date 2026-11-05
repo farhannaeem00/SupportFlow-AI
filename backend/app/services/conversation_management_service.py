@@ -9,6 +9,7 @@ from app.models.conversation_event import ConversationEvent
 from app.models.organization_member import OrganizationMember
 from app.models.user import User
 
+from app.services.audit_log_service import record_audit_log
 
 VALID_STATUSES = {
     "open",
@@ -107,6 +108,18 @@ def assign_conversation(
         )
 
         db.add(event)
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="conversation_assigned",
+            resource_type="conversation",
+            resource_id=conversation.id,
+            details={
+                "old_assigned_to_id": old_value,
+                "new_assigned_to_id": new_value,
+            },
+        )
         db.commit()
         db.refresh(conversation)
 
@@ -151,6 +164,18 @@ def update_conversation_status(
         )
 
         db.add(event)
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="conversation_status_changed",
+            resource_type="conversation",
+            resource_id=conversation.id,
+            details={
+                "old_status": old_status,
+                "new_status": new_status,
+            },
+        )
         db.commit()
         db.refresh(conversation)
 
@@ -195,6 +220,18 @@ def update_conversation_priority(
         )
 
         db.add(event)
+        record_audit_log(
+            db,
+            organization_id=organization_id,
+            actor_id=actor_id,
+            action="conversation_priority_changed",
+            resource_type="conversation",
+            resource_id=conversation.id,
+            details={
+                "old_priority": old_priority,
+                "new_priority": new_priority,
+            },
+        )
         db.commit()
         db.refresh(conversation)
 
