@@ -3,11 +3,16 @@ from uuid import UUID
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     Header,
     HTTPException,
     Request,
     status,
+)
+from app.services.notification_service import (
+    notify_new_widget_conversation,
+    notify_customer_message,
 )
 from sqlalchemy.orm import Session
 
@@ -170,6 +175,7 @@ def create_session(
 def create_conversation(
     public_key: str,
     payload: WidgetConversationCreate,
+    background_tasks: BackgroundTasks,
     x_widget_session: str = Header(alias="X-Widget-Session"),
     db: Session = Depends(get_db),
 ):
@@ -203,6 +209,11 @@ def create_conversation(
         subject=payload.subject,
         message_content=payload.message,
     )
+    background_tasks.add_task(
+        notify_new_widget_conversation,
+        organization.id,
+        conversation.id,
+)
 
     messages = get_widget_messages(
         db=db,
@@ -233,6 +244,7 @@ def create_conversation(
 def send_message(
     public_key: str,
     payload: WidgetMessageCreate,
+    background_tasks: BackgroundTasks,
     x_widget_session: str = Header(alias="X-Widget-Session"),
     db: Session = Depends(get_db),
 ):
@@ -259,6 +271,12 @@ def send_message(
             widget_session,
             payload.message,
         )
+        if widget_session.conversation_id is not None:
+            background_tasks.add_task(
+                notify_customer_message,
+                organization.id,
+                widget_session.conversation_id,
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

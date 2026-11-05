@@ -1,6 +1,6 @@
 import uuid
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -75,6 +75,11 @@ from app.services.auth_rate_limit_service import (
     enforce_ai_analysis_rate_limit,
 )
 
+from app.services.notification_service import (
+    notify_conversation_assigned,
+    notify_conversation_urgent,
+    notify_conversation_resolved,
+)
 
 router = APIRouter(
     prefix="/conversations",
@@ -238,17 +243,37 @@ def send_agent_message(
 def update_conversation_assignment(
     conversation_id: uuid.UUID,
     payload: ConversationAssignmentUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: OrganizationMember = Depends(get_current_membership),
 ):
     try:
-        return assign_conversation(
+        previous_assignee_id = db.scalar(
+            select(Conversation.assigned_to_id).where(
+                Conversation.id == conversation_id,
+                Conversation.organization_id == membership.organization_id,
+            )
+        )
+        conversation = assign_conversation(
             db=db,
             organization_id=membership.organization_id,
             conversation_id=conversation_id,
             actor_id=membership.user_id,
             assigned_to_id=payload.assigned_to_id,
         )
+
+        if (
+            conversation.assigned_to_id is not None
+            and conversation.assigned_to_id != previous_assignee_id
+        ):
+            background_tasks.add_task(
+                notify_conversation_assigned,
+                membership.organization_id,
+                conversation.id,
+                conversation.assigned_to_id,
+            )
+
+        return conversation
 
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -264,17 +289,36 @@ def update_conversation_assignment(
 def update_status(
     conversation_id: uuid.UUID,
     payload: ConversationStatusUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: OrganizationMember = Depends(get_current_membership),
 ):
     try:
-        return update_conversation_status(
+        previous_status = db.scalar(
+            select(Conversation.status).where(
+                Conversation.id == conversation_id,
+                Conversation.organization_id == membership.organization_id,
+            )
+        )
+        conversation = update_conversation_status(
             db=db,
             organization_id=membership.organization_id,
             conversation_id=conversation_id,
             actor_id=membership.user_id,
             new_status=payload.status,
         )
+
+        if (
+            conversation.status == "resolved"
+            and previous_status != "resolved"
+        ):
+            background_tasks.add_task(
+                notify_conversation_resolved,
+                membership.organization_id,
+                conversation.id,
+            )
+
+        return conversation
 
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -290,17 +334,36 @@ def update_status(
 def update_priority(
     conversation_id: uuid.UUID,
     payload: ConversationPriorityUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: OrganizationMember = Depends(get_current_membership),
 ):
     try:
-        return update_conversation_priority(
+        previous_priority = db.scalar(
+            select(Conversation.priority).where(
+                Conversation.id == conversation_id,
+                Conversation.organization_id == membership.organization_id,
+            )
+        )
+        conversation = update_conversation_priority(
             db=db,
             organization_id=membership.organization_id,
             conversation_id=conversation_id,
             actor_id=membership.user_id,
             new_priority=payload.priority,
         )
+
+        if (
+            conversation.priority == "urgent"
+            and previous_priority != "urgent"
+        ):
+            background_tasks.add_task(
+                notify_conversation_urgent,
+                membership.organization_id,
+                conversation.id,
+            )
+
+        return conversation
 
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
