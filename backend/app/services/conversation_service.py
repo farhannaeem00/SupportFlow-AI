@@ -81,7 +81,10 @@ def list_conversations(
         )
 
     query = (
-        query.order_by(Conversation.created_at.desc())
+        query.order_by(
+            Conversation.created_at.desc(),
+            Conversation.id.desc(),
+)
         .offset(skip)
         .limit(limit)
     )

@@ -59,7 +59,10 @@ def list_customers(
         )
 
     return db.scalars(
-        query.order_by(Customer.created_at.desc())
+        query.order_by(
+        Customer.created_at.desc(),
+        Customer.id.desc(),
+)
         .offset(skip)
         .limit(limit)
     ).all()

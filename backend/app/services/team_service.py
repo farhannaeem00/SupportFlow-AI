@@ -1,6 +1,6 @@
 
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import hash_password
 from app.models import Organization, OrganizationMember, User
@@ -10,12 +10,17 @@ VALID_ROLES = {"owner", "agent"}
 
 
 def list_team_members(db: Session, organization_id):
-    return db.scalars(
+    statement = (
         select(OrganizationMember)
+        .options(joinedload(OrganizationMember.user))
         .join(User)
-        .where(OrganizationMember.organization_id == organization_id)
-        .order_by(User.created_at.asc())
-    ).all()
+        .where(
+            OrganizationMember.organization_id == organization_id
+        )
+        .order_by(User.created_at.asc(), User.id.asc())
+    )
+
+    return db.scalars(statement).all()
 
 
 def add_team_member(

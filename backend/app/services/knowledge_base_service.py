@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -55,12 +55,19 @@ def create_knowledge_base(
 def list_knowledge_bases(
     db: Session,
     organization_id: UUID,
+    skip: int = 0,
+    limit: int = 20,
 ) -> list[KnowledgeBase]:
 
     statement = (
         select(KnowledgeBase)
         .where(KnowledgeBase.organization_id == organization_id)
-        .order_by(KnowledgeBase.created_at.desc())
+        .order_by(
+            KnowledgeBase.created_at.desc(),
+            KnowledgeBase.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
     )
 
     return list(db.scalars(statement).all())

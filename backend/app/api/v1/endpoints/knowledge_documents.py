@@ -6,6 +6,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Query,
     UploadFile,
     status,
 )
@@ -68,6 +69,8 @@ async def upload_document(
 )
 def list_documents(
     knowledge_base_id: UUID,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
     membership: OrganizationMember = Depends(
         get_current_membership
     ),
@@ -77,6 +80,8 @@ def list_documents(
         db,
         membership.organization_id,
         knowledge_base_id,
+        skip=skip,
+        limit=limit,
     )
 
 

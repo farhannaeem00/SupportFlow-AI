@@ -366,8 +366,15 @@ def list_documents(
     db: Session,
     organization_id: UUID,
     knowledge_base_id: UUID,
+    skip: int = 0,
+    limit: int = 20,
 ) -> list[KnowledgeDocument]:
-    get_knowledge_base(db, organization_id, knowledge_base_id)
+
+    get_knowledge_base(
+        db,
+        organization_id,
+        knowledge_base_id,
+    )
 
     statement = (
         select(KnowledgeDocument)
@@ -375,7 +382,12 @@ def list_documents(
             KnowledgeDocument.organization_id == organization_id,
             KnowledgeDocument.knowledge_base_id == knowledge_base_id,
         )
-        .order_by(KnowledgeDocument.created_at.desc())
+        .order_by(
+            KnowledgeDocument.created_at.desc(),
+            KnowledgeDocument.id.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
     )
 
     return list(db.scalars(statement).all())

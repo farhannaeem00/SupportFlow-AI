@@ -1,6 +1,7 @@
+
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,6 @@ def build_response(
     db: Session,
     knowledge_base: KnowledgeBase,
 ) -> KnowledgeBaseResponse:
-
     document_count = db.scalar(
         select(func.count(KnowledgeDocument.id)).where(
             KnowledgeDocument.knowledge_base_id == knowledge_base.id,
@@ -42,6 +42,42 @@ def build_response(
     )
 
 
+def build_list_responses(
+    db: Session,
+    organization_id: UUID,
+    knowledge_bases: list[KnowledgeBase],
+) -> list[KnowledgeBaseResponse]:
+    if not knowledge_bases:
+        return []
+
+    knowledge_base_ids = [item.id for item in knowledge_bases]
+
+    count_rows = db.execute(
+        select(
+            KnowledgeDocument.knowledge_base_id,
+            func.count(KnowledgeDocument.id),
+        )
+        .where(
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.knowledge_base_id.in_(knowledge_base_ids),
+        )
+        .group_by(KnowledgeDocument.knowledge_base_id)
+    ).all()
+
+    document_counts = dict(count_rows)
+
+    return [
+        KnowledgeBaseResponse(
+            **{
+                column.name: getattr(item, column.name)
+                for column in KnowledgeBase.__table__.columns
+            },
+            document_count=document_counts.get(item.id, 0),
+        )
+        for item in knowledge_bases
+    ]
+
+
 @router.post(
     "",
     response_model=KnowledgeBaseResponse,
@@ -54,7 +90,6 @@ def create_knowledge_base(
     ),
     db: Session = Depends(get_db),
 ):
-
     knowledge_base = knowledge_base_service.create_knowledge_base(
         db,
         membership.organization_id,
@@ -69,19 +104,23 @@ def create_knowledge_base(
     response_model=list[KnowledgeBaseResponse],
 )
 def list_knowledge_bases(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
     membership: OrganizationMember = Depends(get_current_membership),
     db: Session = Depends(get_db),
 ):
-
     knowledge_bases = knowledge_base_service.list_knowledge_bases(
         db,
         membership.organization_id,
+        skip=skip,
+        limit=limit,
     )
 
-    return [
-        build_response(db, item)
-        for item in knowledge_bases
-    ]
+    return build_list_responses(
+        db,
+        membership.organization_id,
+        knowledge_bases,
+    )
 
 
 @router.get(
@@ -93,7 +132,6 @@ def get_knowledge_base(
     membership: OrganizationMember = Depends(get_current_membership),
     db: Session = Depends(get_db),
 ):
-
     knowledge_base = knowledge_base_service.get_knowledge_base(
         db,
         membership.organization_id,
@@ -115,7 +153,6 @@ def update_knowledge_base(
     ),
     db: Session = Depends(get_db),
 ):
-
     knowledge_base = knowledge_base_service.update_knowledge_base(
         db,
         membership.organization_id,
@@ -137,7 +174,6 @@ def delete_knowledge_base(
     ),
     db: Session = Depends(get_db),
 ):
-
     knowledge_base_service.delete_knowledge_base(
         db,
         membership.organization_id,
