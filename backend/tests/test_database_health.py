@@ -1,3 +1,4 @@
+
 from sqlalchemy.exc import SQLAlchemyError
 
 
@@ -26,6 +27,12 @@ def test_database_health_returns_503_when_database_is_unavailable(
     response = client.get("/health/database")
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": "Database unavailable",
-    }
+
+    data = response.json()
+
+    assert data["detail"] == "Database unavailable"
+    assert data["error"]["code"] == "HTTP_503"
+    assert data["error"]["message"] == "Database unavailable"
+    assert data["error"]["details"] is None
+
+    assert data["error"]["request_id"] == response.headers["X-Request-ID"]
