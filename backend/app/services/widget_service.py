@@ -16,6 +16,13 @@ from app.models import (
     WidgetSession,
 )
 
+from app.services.organization_usage_service import (
+    enforce_usage_limit,
+    get_current_usage,
+    lock_organization,
+    record_conversation_created,
+)
+
 
 SESSION_LIFETIME_DAYS = 7
 
@@ -97,8 +104,20 @@ def start_widget_conversation(
     subject: str,
     message_content: str,
 ) -> Conversation:
-
     try:
+        # Serialize quota checks for this organization.
+        lock_organization(db, organization.id)
+
+        current_usage = get_current_usage(db, organization.id)
+
+        # Check before creating a customer or conversation.
+        enforce_usage_limit(
+            db,
+            organization.id,
+            metric="monthly_conversations",
+            current_usage=current_usage["monthly_conversations"],
+        )
+
         normalized_email = email.strip().lower() if email else None
 
         customer = None
@@ -145,6 +164,9 @@ def start_widget_conversation(
 
         widget_session.customer_id = customer.id
         widget_session.conversation_id = conversation.id
+
+        # Commit the conversation and monthly counter atomically.
+        record_conversation_created(db, organization.id)
 
         db.commit()
         db.refresh(conversation)

@@ -4,6 +4,12 @@ from datetime import datetime, timedelta, timezone
 from app.config import settings
 from app.models import Organization, WidgetSession
 
+from sqlalchemy import func, select
+import uuid
+
+from app.models.customer import Customer
+from app.models.conversation import Conversation
+
 
 def register_widget_organization(client, email):
     response = client.post(
@@ -23,6 +29,10 @@ def register_widget_organization(client, email):
     return {
         "id": organization["id"],
         "public_key": organization["public_key"],
+        "headers": {
+            "Authorization": f"Bearer {response.json()['access_token']}",
+            "X-Organization-ID": organization["id"],
+        },
     }
 
 
@@ -425,3 +435,234 @@ def test_widget_messages_are_organization_scoped(
         for message in owner_messages
     )
     assert other_organization_messages == []
+
+def set_widget_conversation_limit(client, organization, limit):
+    response = client.patch(
+        "/api/v1/organizations/current/usage-limits",
+        headers=organization["headers"],
+        json={"max_monthly_conversations": limit},
+    )
+
+    assert response.status_code == 200, response.text
+    return response
+
+
+def get_widget_monthly_conversation_count(client, organization):
+    response = client.get(
+        "/api/v1/organizations/current/usage",
+        headers=organization["headers"],
+    )
+
+    assert response.status_code == 200, response.text
+
+    return response.json()["usage"]["monthly_conversations"]
+
+
+def count_organization_records(db_session, model, organization_id):
+    return db_session.scalar(
+        select(func.count())
+        .select_from(model)
+        .where(model.organization_id == organization_id)
+    )
+
+
+def create_widget_conversation_with_new_session(
+    client,
+    organization,
+):
+    session_response = create_widget_session(
+        client,
+        organization["public_key"],
+    )
+
+    assert session_response.status_code == 201, session_response.text
+
+    return create_widget_conversation(
+        client,
+        organization["public_key"],
+        session_response.json()["session_token"],
+    )
+
+
+def test_widget_monthly_conversation_limit_allows_creation_below_limit(
+    client,
+    db_session,
+    monkeypatch,
+):
+    from app.api.v1.endpoints import widget
+
+    monkeypatch.setattr(
+        widget,
+        "notify_new_widget_conversation",
+        lambda *args, **kwargs: None,
+    )
+
+    organization = register_widget_organization(
+        client,
+        "widget_monthly_below@example.com",
+    )
+
+    set_widget_conversation_limit(client, organization, 2)
+
+    first = create_widget_conversation_with_new_session(
+        client, organization
+    )
+    second = create_widget_conversation_with_new_session(
+        client, organization
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+
+    assert get_widget_monthly_conversation_count(
+        client, organization
+    ) == 2
+
+
+def test_widget_monthly_conversation_limit_rejects_creation_at_limit(
+    client,
+    db_session,
+    monkeypatch,
+):
+    from app.api.v1.endpoints import widget
+
+    monkeypatch.setattr(
+        widget,
+        "notify_new_widget_conversation",
+        lambda *args, **kwargs: None,
+    )
+
+    organization = register_widget_organization(
+        client,
+        "widget_monthly_at_limit@example.com",
+    )
+
+    set_widget_conversation_limit(client, organization, 1)
+
+    first = create_widget_conversation_with_new_session(
+        client, organization
+    )
+
+    assert first.status_code == 201, first.text
+
+    rejected = create_widget_conversation_with_new_session(
+        client, organization
+    )
+
+    assert rejected.status_code == 403, rejected.text
+    assert "monthly_conversations" in rejected.text
+
+    organization_id = uuid.UUID(organization["id"])
+
+    assert count_organization_records(
+        db_session, Customer, organization_id
+    ) == 1
+
+    assert count_organization_records(
+        db_session, Conversation, organization_id
+    ) == 1
+
+    assert get_widget_monthly_conversation_count(
+        client, organization
+    ) == 1
+
+    # Raising the limit must allow the previously rejected request.
+    set_widget_conversation_limit(client, organization, 2)
+
+    retry = create_widget_conversation_with_new_session(
+        client, organization
+    )
+
+    assert retry.status_code == 201, retry.text
+
+    assert get_widget_monthly_conversation_count(
+        client, organization
+    ) == 2
+
+
+def test_widget_monthly_conversation_limit_null_allows_unlimited_creation(
+    client,
+    monkeypatch,
+):
+    from app.api.v1.endpoints import widget
+
+    monkeypatch.setattr(
+        widget,
+        "notify_new_widget_conversation",
+        lambda *args, **kwargs: None,
+    )
+
+    organization = register_widget_organization(
+        client,
+        "widget_monthly_unlimited@example.com",
+    )
+
+    set_widget_conversation_limit(client, organization, 1)
+
+    first = create_widget_conversation_with_new_session(
+        client, organization
+    )
+
+    assert first.status_code == 201, first.text
+
+    set_widget_conversation_limit(client, organization, None)
+
+    second = create_widget_conversation_with_new_session(
+        client, organization
+    )
+
+    assert second.status_code == 201, second.text
+
+    assert get_widget_monthly_conversation_count(
+        client, organization
+    ) == 2
+
+
+def test_widget_monthly_conversation_limit_is_organization_scoped(
+    client,
+    monkeypatch,
+):
+    from app.api.v1.endpoints import widget
+
+    monkeypatch.setattr(
+        widget,
+        "notify_new_widget_conversation",
+        lambda *args, **kwargs: None,
+    )
+
+    organization_one = register_widget_organization(
+        client,
+        "widget_monthly_org_one@example.com",
+    )
+
+    organization_two = register_widget_organization(
+        client,
+        "widget_monthly_org_two@example.com",
+    )
+
+    set_widget_conversation_limit(client, organization_one, 1)
+
+    first = create_widget_conversation_with_new_session(
+        client, organization_one
+    )
+
+    assert first.status_code == 201, first.text
+
+    rejected = create_widget_conversation_with_new_session(
+        client, organization_one
+    )
+
+    independent = create_widget_conversation_with_new_session(
+        client, organization_two
+    )
+
+    assert rejected.status_code == 403, rejected.text
+    assert independent.status_code == 201, independent.text
+
+    assert get_widget_monthly_conversation_count(
+        client, organization_one
+    ) == 1
+
+    assert get_widget_monthly_conversation_count(
+        client, organization_two
+    ) == 1
