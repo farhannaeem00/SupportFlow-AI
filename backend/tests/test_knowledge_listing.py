@@ -410,3 +410,245 @@ def test_knowledge_base_limit_is_isolated_between_organizations(client):
     )
 
     assert created["name"] == "Organization Two KB"
+
+def configure_document_upload(monkeypatch, tmp_path):
+    from app.api.v1.endpoints import knowledge_documents as endpoint
+    from app.services import knowledge_document_service as service
+
+    upload_root = tmp_path / "uploads"
+
+    monkeypatch.setattr(
+        service.settings,
+        "upload_dir",
+        str(upload_root),
+    )
+    monkeypatch.setattr(
+        endpoint,
+        "process_knowledge_document",
+        lambda *args: None,
+    )
+
+    return upload_root
+
+
+def set_document_limits(client, owner, **limits):
+    response = client.patch(
+        "/api/v1/organizations/current/usage-limits",
+        headers=auth_headers(owner),
+        json=limits,
+    )
+
+    assert response.status_code == 200, response.text
+
+
+def upload_test_file(client, owner, knowledge_base_id, filename, content):
+    return client.post(
+        f"/api/v1/knowledge-bases/{knowledge_base_id}/documents",
+        headers=auth_headers(owner),
+        files={
+            "file": (filename, content, "application/pdf"),
+        },
+    )
+
+def test_document_limit_enforces_count_and_rejected_upload_leaves_no_file(
+    client,
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from pathlib import Path
+
+    upload_root = configure_document_upload(monkeypatch, tmp_path)
+
+    owner = register_owner(client, "document_limit@example.com")
+    knowledge_base = create_knowledge_base(
+        client, owner, "Document Limit KB"
+    )
+
+    set_document_limits(client, owner, max_documents=1)
+
+    first_content = b"%PDF-1.4\nFirst document"
+    second_content = b"%PDF-1.4\nSecond document"
+
+    first = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "first.pdf", first_content,
+    )
+    assert first.status_code == 201, first.text
+
+    rejected = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "second.pdf", second_content,
+    )
+
+    assert rejected.status_code == 403, rejected.text
+    assert "documents" in rejected.text
+
+    documents = db_session.scalars(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.organization_id == owner["organization_id"]
+        )
+    ).all()
+
+    assert len(documents) == 1
+    assert len(list(Path(upload_root).rglob("*.pdf"))) == 1
+
+    # The rejected upload must be retryable after increasing the limit.
+    set_document_limits(client, owner, max_documents=2)
+
+    retry = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "second.pdf", second_content,
+    )
+
+    assert retry.status_code == 201, retry.text
+
+    documents = db_session.scalars(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.organization_id == owner["organization_id"]
+        )
+    ).all()
+
+    assert len(documents) == 2
+    assert len(list(Path(upload_root).rglob("*.pdf"))) == 2
+
+
+def test_storage_limit_uses_actual_uploaded_file_size(
+    client,
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from pathlib import Path
+
+    upload_root = configure_document_upload(monkeypatch, tmp_path)
+
+    owner = register_owner(client, "storage_limit@example.com")
+    knowledge_base = create_knowledge_base(
+        client, owner, "Storage Limit KB"
+    )
+
+    first_content = b"%PDF-1.4\nFirst"
+    second_content = b"%PDF-1.4\nSecond document"
+
+    set_document_limits(
+        client,
+        owner,
+        max_storage_bytes=len(first_content),
+    )
+
+    first = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "first.pdf", first_content,
+    )
+    assert first.status_code == 201, first.text
+
+    rejected = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "second.pdf", second_content,
+    )
+
+    assert rejected.status_code == 403, rejected.text
+    assert "storage_bytes" in rejected.text
+
+    documents = db_session.scalars(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.organization_id == owner["organization_id"]
+        )
+    ).all()
+
+    assert len(documents) == 1
+    assert documents[0].file_size == len(first_content)
+    assert len(list(Path(upload_root).rglob("*.pdf"))) == 1
+
+    # Allow exactly the combined size and retry.
+    set_document_limits(
+        client,
+        owner,
+        max_storage_bytes=len(first_content) + len(second_content),
+    )
+
+    retry = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "second.pdf", second_content,
+    )
+
+    assert retry.status_code == 201, retry.text
+
+    documents = db_session.scalars(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.organization_id == owner["organization_id"]
+        )
+    ).all()
+
+    assert len(documents) == 2
+    assert sum(doc.file_size for doc in documents) == (
+        len(first_content) + len(second_content)
+    )
+    assert len(list(Path(upload_root).rglob("*.pdf"))) == 2
+
+
+def test_document_limit_null_allows_unlimited_uploads(
+    client,
+    monkeypatch,
+    tmp_path,
+):
+    configure_document_upload(monkeypatch, tmp_path)
+
+    owner = register_owner(client, "document_unlimited@example.com")
+    knowledge_base = create_knowledge_base(
+        client, owner, "Unlimited Documents KB"
+    )
+
+    set_document_limits(client, owner, max_documents=0)
+
+    rejected = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "first.pdf", b"%PDF-1.4\nFirst",
+    )
+    assert rejected.status_code == 403
+
+    set_document_limits(client, owner, max_documents=None)
+
+    first = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "first.pdf", b"%PDF-1.4\nFirst",
+    )
+    second = upload_test_file(
+        client, owner, knowledge_base["id"],
+        "second.pdf", b"%PDF-1.4\nSecond",
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+
+
+def test_document_limits_are_isolated_between_organizations(
+    client,
+    monkeypatch,
+    tmp_path,
+):
+    configure_document_upload(monkeypatch, tmp_path)
+
+    owner_one = register_owner(client, "document_org_one@example.com")
+    owner_two = register_owner(client, "document_org_two@example.com")
+
+    kb_one = create_knowledge_base(client, owner_one, "Organization One KB")
+    kb_two = create_knowledge_base(client, owner_two, "Organization Two KB")
+
+    set_document_limits(client, owner_one, max_documents=0)
+
+    rejected = upload_test_file(
+        client, owner_one, kb_one["id"],
+        "one.pdf", b"%PDF-1.4\nOrganization One",
+    )
+
+    assert rejected.status_code == 403, rejected.text
+
+    # Organization Two has no configured document limit.
+    created = upload_test_file(
+        client, owner_two, kb_two["id"],
+        "two.pdf", b"%PDF-1.4\nOrganization Two",
+    )
+
+    assert created.status_code == 201, created.text

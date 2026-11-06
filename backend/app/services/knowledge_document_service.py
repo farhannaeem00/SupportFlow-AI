@@ -15,7 +15,11 @@ from app.config import settings
 from app.models import KnowledgeBase, KnowledgeDocument
 from app.services.audit_log_service import record_audit_log
 from app.services.knowledge.vector_store import delete_document_chunks
-
+from app.services.organization_usage_service import (
+    enforce_usage_limit,
+    get_current_usage,
+    lock_organization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -298,49 +302,79 @@ async def upload_document(
 
     checksum = hashlib.sha256(content).hexdigest()
 
-    duplicate = db.scalar(
-        select(KnowledgeDocument).where(
-            KnowledgeDocument.organization_id == organization_id,
-            KnowledgeDocument.knowledge_base_id == knowledge_base.id,
-            KnowledgeDocument.checksum == checksum,
-        )
-    )
-
-    if duplicate:
-        raise HTTPException(
-            status_code=409,
-            detail="This document already exists in the knowledge base",
-        )
-
-    document_id = uuid.uuid4()
-    stored_filename = f"{document_id}{extension}"
-
-    storage_directory = get_document_storage_directory(
-        organization_id,
-        knowledge_base.id,
-    )
-    storage_directory.mkdir(parents=True, exist_ok=True)
-
-    file_path = get_stored_document_path(
-        organization_id,
-        knowledge_base.id,
-        stored_filename,
-    )
-
-    document = KnowledgeDocument(
-        id=document_id,
-        organization_id=organization_id,
-        knowledge_base_id=knowledge_base.id,
-        uploaded_by=user_id,
-        original_filename=original_filename,
-        stored_filename=stored_filename,
-        content_type=content_type,
-        file_size=len(content),
-        checksum=checksum,
-        status="uploaded",
-    )
+    # Serialize uploads within this organization. This ensures that
+    # concurrent uploads cannot both consume the same remaining quota.
+    lock_organization(db, organization_id)
 
     try:
+        duplicate = db.scalar(
+            select(KnowledgeDocument).where(
+                KnowledgeDocument.organization_id == organization_id,
+                KnowledgeDocument.knowledge_base_id == knowledge_base.id,
+                KnowledgeDocument.checksum == checksum,
+            )
+        )
+
+        if duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail="This document already exists in the knowledge base",
+            )
+
+        current_usage = get_current_usage(db, organization_id)
+
+        # Enforce the maximum number of documents.
+        enforce_usage_limit(
+            db,
+            organization_id,
+            metric="documents",
+            current_usage=current_usage["documents"],
+        )
+
+        # Enforce total storage using the actual uploaded file size.
+        enforce_usage_limit(
+            db,
+            organization_id,
+            metric="storage_bytes",
+            current_usage=current_usage["storage_bytes"],
+            increment=len(content),
+        )
+
+    except Exception:
+        db.rollback()
+        raise
+
+    file_path = None
+
+    try:
+        document_id = uuid.uuid4()
+        stored_filename = f"{document_id}{extension}"
+
+        storage_directory = get_document_storage_directory(
+            organization_id,
+            knowledge_base.id,
+        )
+        storage_directory.mkdir(parents=True, exist_ok=True)
+
+        file_path = get_stored_document_path(
+            organization_id,
+            knowledge_base.id,
+            stored_filename,
+        )
+
+        document = KnowledgeDocument(
+            id=document_id,
+            organization_id=organization_id,
+            knowledge_base_id=knowledge_base.id,
+            uploaded_by=user_id,
+            original_filename=original_filename,
+            stored_filename=stored_filename,
+            content_type=content_type,
+            file_size=len(content),
+            checksum=checksum,
+            status="uploaded",
+        )
+
         file_path.write_bytes(content)
 
         db.add(document)
@@ -357,19 +391,21 @@ async def upload_document(
                 "file_size": len(content),
             },
         )
+
         db.commit()
         db.refresh(document)
 
     except Exception:
         db.rollback()
 
-        try:
-            file_path.unlink(missing_ok=True)
-        except OSError:
-            logger.exception(
-                "Failed to remove uploaded file after database failure: %s",
-                file_path,
-            )
+        if file_path is not None:
+            try:
+                file_path.unlink(missing_ok=True)
+            except OSError:
+                logger.exception(
+                    "Failed to remove uploaded file after database failure: %s",
+                    file_path,
+                )
 
         raise
 
