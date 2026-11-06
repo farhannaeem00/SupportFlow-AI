@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
 
+    # Webhook signing-secret encryption
+    webhook_encryption_key: str | None = None
+
     # AI provider reliability
     ai_provider_timeout_seconds: float = Field(
         default=20.0,
