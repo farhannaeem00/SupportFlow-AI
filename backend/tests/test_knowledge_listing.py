@@ -317,3 +317,96 @@ def test_knowledge_base_operations_create_audit_logs(
     assert logs[0].details["name"] == "Audit Test KB"
     assert logs[1].details["updated_fields"] == ["name"]
     assert logs[2].details["name"] == "Updated Audit Test KB"
+
+def set_knowledge_base_limit(client, owner, limit):
+    response = client.patch(
+        "/api/v1/organizations/current/usage-limits",
+        headers=auth_headers(owner),
+        json={"max_knowledge_bases": limit},
+    )
+
+    assert response.status_code == 200, response.text
+    return response
+
+
+def test_knowledge_base_limit_allows_creation_below_limit(client):
+    owner = register_owner(client, "kb_limit_allowed@example.com")
+
+    set_knowledge_base_limit(client, owner, 2)
+
+    first = create_knowledge_base(client, owner, "Allowed KB 1")
+    second = create_knowledge_base(client, owner, "Allowed KB 2")
+
+    assert first["id"]
+    assert second["id"]
+
+
+def test_knowledge_base_limit_rejects_creation_at_limit(client):
+    owner = register_owner(client, "kb_limit_rejected@example.com")
+
+    set_knowledge_base_limit(client, owner, 1)
+
+    create_knowledge_base(client, owner, "Existing KB")
+
+    response = client.post(
+        "/api/v1/knowledge-bases",
+        headers=auth_headers(owner),
+        json={
+            "name": "Rejected KB",
+            "description": "This must not be created",
+        },
+    )
+
+    assert response.status_code == 403, response.text
+    assert "knowledge_bases" in response.text
+
+    # Increase the limit and retry the same name.
+    # This verifies the rejected request did not create the record.
+    set_knowledge_base_limit(client, owner, 2)
+
+    retry = create_knowledge_base(client, owner, "Rejected KB")
+
+    assert retry["name"] == "Rejected KB"
+
+
+def test_knowledge_base_limit_null_allows_unlimited_creation(client):
+    owner = register_owner(client, "kb_limit_unlimited@example.com")
+
+    set_knowledge_base_limit(client, owner, 1)
+
+    create_knowledge_base(client, owner, "First KB")
+
+    set_knowledge_base_limit(client, owner, None)
+
+    second = create_knowledge_base(client, owner, "Second KB")
+
+    assert second["name"] == "Second KB"
+
+
+def test_knowledge_base_limit_is_isolated_between_organizations(client):
+    owner_one = register_owner(client, "kb_limit_org_one@example.com")
+    owner_two = register_owner(client, "kb_limit_org_two@example.com")
+
+    set_knowledge_base_limit(client, owner_one, 1)
+
+    create_knowledge_base(client, owner_one, "Organization One KB")
+
+    rejected = client.post(
+        "/api/v1/knowledge-bases",
+        headers=auth_headers(owner_one),
+        json={
+            "name": "Organization One Extra KB",
+            "description": "Must be rejected",
+        },
+    )
+
+    assert rejected.status_code == 403, rejected.text
+
+    # Organization Two has no configured limit.
+    created = create_knowledge_base(
+        client,
+        owner_two,
+        "Organization Two KB",
+    )
+
+    assert created["name"] == "Organization Two KB"

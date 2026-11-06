@@ -18,6 +18,11 @@ from app.services.audit_log_service import record_audit_log
 from app.services.knowledge.vector_store import (
     delete_knowledge_base_chunks,
 )
+from app.services.organization_usage_service import (
+    enforce_usage_limit,
+    get_current_usage,
+    lock_organization,
+)
 logger = logging.getLogger(__name__)
 
 def create_knowledge_base(
@@ -38,6 +43,20 @@ def create_knowledge_base(
             status_code=422,
             detail="Knowledge base name cannot be empty",
         )
+
+    # Serialize knowledge-base creation within this organization.
+    lock_organization(db, organization_id)
+
+    # Calculate current usage from the source tables.
+    current_usage = get_current_usage(db, organization_id)
+
+    # Enforce the configured organization limit before creating anything.
+    enforce_usage_limit(
+        db,
+        organization_id,
+        metric="knowledge_bases",
+        current_usage=current_usage["knowledge_bases"],
+    )
 
     db.add(knowledge_base)
 
