@@ -12,6 +12,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.message import Message
 
+from app.services.organization_usage_service import (
+    enforce_usage_limit,
+    get_current_usage,
+    lock_organization,
+    record_conversation_created,
+)
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 VALID_CHANNELS = {"web_widget"}
 
@@ -38,19 +44,37 @@ def create_conversation(
     if not customer:
         raise LookupError("Customer not found in this organization.")
 
-    conversation = Conversation(
-        organization_id=organization_id,
-        customer_id=customer.id,
-        subject=payload.subject.strip(),
-        priority=payload.priority,
-        channel=payload.channel,
-    )
-
     try:
+        # Serialize conversation creation within this organization.
+        lock_organization(db, organization_id)
+
+        current_usage = get_current_usage(db, organization_id)
+
+        enforce_usage_limit(
+            db,
+            organization_id,
+            metric="monthly_conversations",
+            current_usage=current_usage["monthly_conversations"],
+        )
+
+        conversation = Conversation(
+            organization_id=organization_id,
+            customer_id=customer.id,
+            subject=payload.subject.strip(),
+            priority=payload.priority,
+            channel=payload.channel,
+        )
+
         db.add(conversation)
+
+        # Update the monthly counter in the same transaction.
+        record_conversation_created(db, organization_id)
+
         db.commit()
         db.refresh(conversation)
+
         return conversation
+
     except Exception:
         db.rollback()
         raise

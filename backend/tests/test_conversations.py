@@ -671,3 +671,145 @@ def test_unchanged_or_failed_conversation_changes_create_no_audit_logs(
     ).all()
 
     assert audit_logs == []
+
+
+def set_conversation_limit(client, owner, limit):
+    response = client.patch(
+        "/api/v1/organizations/current/usage-limits",
+        headers=auth_headers(owner),
+        json={"max_monthly_conversations": limit},
+    )
+
+    assert response.status_code == 200, response.text
+
+
+def get_monthly_conversation_count(db_session, organization_id):
+    from app.services.organization_usage_service import current_period_start
+    from app.models.organization_usage import OrganizationUsage
+
+    return db_session.scalar(
+        select(OrganizationUsage.conversations_created).where(
+            OrganizationUsage.organization_id == uuid.UUID(organization_id),
+            OrganizationUsage.period_start == current_period_start(),
+        )
+    )
+
+
+def test_monthly_conversation_limit_allows_creation_below_limit(
+    client,
+    db_session,
+):
+    owner = register_owner(client, "conversation_limit_allowed@example.com")
+    customer = create_test_customer(client, owner)
+
+    set_conversation_limit(client, owner, 2)
+
+    first = create_test_conversation(client, owner, customer["id"])
+    second = create_test_conversation(
+        client, owner, customer["id"], "Second request"
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+
+    assert get_monthly_conversation_count(
+        db_session, owner["organization_id"]
+    ) == 2
+
+
+def test_monthly_conversation_limit_rejects_creation_at_limit(
+    client,
+    db_session,
+):
+    owner = register_owner(client, "conversation_limit_rejected@example.com")
+    customer = create_test_customer(client, owner)
+
+    set_conversation_limit(client, owner, 1)
+
+    first = create_test_conversation(client, owner, customer["id"])
+    assert first.status_code == 201, first.text
+
+    rejected = create_test_conversation(
+        client, owner, customer["id"], "Rejected request"
+    )
+
+    assert rejected.status_code == 403, rejected.text
+    assert "monthly_conversations" in rejected.text
+
+    assert get_monthly_conversation_count(
+        db_session, owner["organization_id"]
+    ) == 1
+
+    # Raising the limit must allow retrying the rejected request.
+    set_conversation_limit(client, owner, 2)
+
+    retry = create_test_conversation(
+        client, owner, customer["id"], "Rejected request"
+    )
+
+    assert retry.status_code == 201, retry.text
+    assert get_monthly_conversation_count(
+        db_session, owner["organization_id"]
+    ) == 2
+
+
+def test_monthly_conversation_limit_null_allows_unlimited_creation(
+    client,
+    db_session,
+):
+    owner = register_owner(client, "conversation_limit_unlimited@example.com")
+    customer = create_test_customer(client, owner)
+
+    set_conversation_limit(client, owner, 1)
+
+    first = create_test_conversation(client, owner, customer["id"])
+    assert first.status_code == 201, first.text
+
+    set_conversation_limit(client, owner, None)
+
+    second = create_test_conversation(
+        client, owner, customer["id"], "Unlimited request"
+    )
+
+    assert second.status_code == 201, second.text
+
+    assert get_monthly_conversation_count(
+        db_session, owner["organization_id"]
+    ) == 2
+
+
+def test_monthly_conversation_limit_is_isolated_between_organizations(
+    client,
+    db_session,
+):
+    owner_one = register_owner(client, "conversation_limit_org_one@example.com")
+    owner_two = register_owner(client, "conversation_limit_org_two@example.com")
+
+    customer_one = create_test_customer(client, owner_one)
+    customer_two = create_test_customer(client, owner_two)
+
+    set_conversation_limit(client, owner_one, 1)
+
+    first = create_test_conversation(
+        client, owner_one, customer_one["id"]
+    )
+    assert first.status_code == 201, first.text
+
+    rejected = create_test_conversation(
+        client, owner_one, customer_one["id"], "Organization One Extra"
+    )
+    assert rejected.status_code == 403, rejected.text
+
+    # Organization Two has its own independent monthly quota.
+    second = create_test_conversation(
+        client, owner_two, customer_two["id"]
+    )
+    assert second.status_code == 201, second.text
+
+    assert get_monthly_conversation_count(
+        db_session, owner_one["organization_id"]
+    ) == 1
+
+    assert get_monthly_conversation_count(
+        db_session, owner_two["organization_id"]
+    ) == 1
