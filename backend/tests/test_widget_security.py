@@ -666,3 +666,67 @@ def test_widget_monthly_conversation_limit_is_organization_scoped(
     assert get_widget_monthly_conversation_count(
         client, organization_two
     ) == 1
+
+def test_widget_conversation_succeeds_when_ai_quota_is_exhausted(
+    client,
+    db_session,
+    monkeypatch,
+):
+    from uuid import UUID
+
+    from app.api.v1.endpoints import widget
+    from app.services.widget_service import get_widget_messages
+
+    class QuotaExhaustedAIService:
+        def process_conversation(self, **kwargs):
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "usage_limit_exceeded",
+                    "metric": "monthly_ai_operations",
+                },
+            )
+
+    monkeypatch.setattr(
+        widget,
+        "ConversationAIService",
+        QuotaExhaustedAIService,
+    )
+    monkeypatch.setattr(
+        widget,
+        "notify_new_widget_conversation",
+        lambda *args, **kwargs: None,
+    )
+
+    organization = register_widget_organization(
+        client,
+        "widget_ai_quota_exhausted@example.com",
+    )
+
+    response = create_widget_conversation_with_new_session(
+        client,
+        organization,
+    )
+
+    # AI quota exhaustion must not fail widget conversation creation.
+    assert response.status_code == 201, response.text
+
+    organization_id = UUID(organization["id"])
+    conversation_id = UUID(response.json()["id"])
+
+    messages = get_widget_messages(
+        db=db_session,
+        organization_id=organization_id,
+        conversation_id=conversation_id,
+    )
+
+    # The initial customer message must remain saved.
+    assert len(messages) == 1
+    assert messages[0].content == "I need assistance."
+
+    assert get_widget_monthly_conversation_count(
+        client,
+        organization,
+    ) == 1

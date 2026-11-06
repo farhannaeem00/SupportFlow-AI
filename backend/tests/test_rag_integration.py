@@ -15,6 +15,15 @@ from app.schemas.ai import (
     KnowledgeAIReply,
     KnowledgeSource,
 )
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
+
+from app.models.organization_usage import (
+    OrganizationUsage,
+    OrganizationUsageLimit,
+)
+from app.services.organization_usage_service import current_period_start
 
 from app.services.ai.conversation_ai_service import ConversationAIService
 
@@ -70,6 +79,23 @@ def configure_ai_services(service):
         requires_human=False,
         reasoning="Customer needs account assistance.",
     )
+
+def get_ai_usage(db_session, organization_id):
+    usage = db_session.get(
+        OrganizationUsage,
+        (organization_id, current_period_start()),
+    )
+
+    if usage is None:
+        return {
+            "completed": 0,
+            "reserved": 0,
+        }
+
+    return {
+        "completed": usage.ai_operations,
+        "reserved": usage.ai_operations_reserved,
+    }
 
 
 def test_rag_reply_sources_are_saved_with_ai_insight(
@@ -335,3 +361,254 @@ def test_organization_without_knowledge_base_uses_legacy_reply(
     )
 
     assert insight.suggested_reply_sources == []
+def test_successful_ai_processing_records_one_monthly_operation(
+    client,
+    db_session,
+):
+    owner = register_owner(client, "ai_usage_success@example.com")
+
+    conversation = create_conversation_with_customer_message(
+        client,
+        db_session,
+        owner,
+    )
+
+    db_session.add(
+        OrganizationAISettings(
+            organization_id=conversation.organization_id,
+            ai_enabled=True,
+            suggestions_enabled=False,
+        )
+    )
+    db_session.commit()
+
+    service = ConversationAIService()
+    configure_ai_services(service)
+
+    insight = service.process_conversation(
+        db=db_session,
+        organization_id=conversation.organization_id,
+        conversation_id=conversation.id,
+    )
+
+    assert insight is not None
+    assert get_ai_usage(
+        db_session,
+        conversation.organization_id,
+    ) == {
+        "completed": 1,
+        "reserved": 0,
+    }
+
+
+def test_ai_quota_exhaustion_prevents_provider_processing(
+    client,
+    db_session,
+    monkeypatch,
+):
+    owner = register_owner(client, "ai_usage_limit@example.com")
+
+    conversation = create_conversation_with_customer_message(
+        client,
+        db_session,
+        owner,
+    )
+
+    db_session.add(
+        OrganizationUsageLimit(
+            organization_id=conversation.organization_id,
+            max_monthly_ai_operations=0,
+        )
+    )
+    db_session.commit()
+
+    service = ConversationAIService()
+
+    def unexpected_analysis(**kwargs):
+        pytest.fail("AI provider must not run after quota exhaustion.")
+
+    monkeypatch.setattr(
+        service.analysis_service,
+        "analyze",
+        unexpected_analysis,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.process_conversation(
+            db=db_session,
+            organization_id=conversation.organization_id,
+            conversation_id=conversation.id,
+        )
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["metric"] == "monthly_ai_operations"
+
+    assert get_ai_usage(
+        db_session,
+        conversation.organization_id,
+    ) == {
+        "completed": 0,
+        "reserved": 0,
+    }
+
+
+def test_analysis_provider_failure_releases_ai_reservation(
+    client,
+    db_session,
+    monkeypatch,
+):
+    owner = register_owner(client, "ai_usage_analysis_failure@example.com")
+
+    conversation = create_conversation_with_customer_message(
+        client,
+        db_session,
+        owner,
+    )
+
+    db_session.add(
+        OrganizationAISettings(
+            organization_id=conversation.organization_id,
+            ai_enabled=True,
+            suggestions_enabled=False,
+        )
+    )
+    db_session.commit()
+
+    service = ConversationAIService()
+
+    def failed_analysis(**kwargs):
+        raise RuntimeError("Simulated analysis provider failure.")
+
+    monkeypatch.setattr(
+        service.analysis_service,
+        "analyze",
+        failed_analysis,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Simulated analysis provider failure",
+    ):
+        service.process_conversation(
+            db=db_session,
+            organization_id=conversation.organization_id,
+            conversation_id=conversation.id,
+        )
+
+    assert get_ai_usage(
+        db_session,
+        conversation.organization_id,
+    ) == {
+        "completed": 0,
+        "reserved": 0,
+    }
+
+
+def test_reply_provider_failure_releases_ai_reservation(
+    client,
+    db_session,
+):
+    owner = register_owner(client, "ai_usage_reply_failure@example.com")
+
+    conversation = create_conversation_with_customer_message(
+        client,
+        db_session,
+        owner,
+    )
+
+    db_session.add(
+        OrganizationAISettings(
+            organization_id=conversation.organization_id,
+            ai_enabled=True,
+            suggestions_enabled=True,
+        )
+    )
+    db_session.commit()
+
+    service = ConversationAIService()
+    configure_ai_services(service)
+
+    def failed_reply(**kwargs):
+        raise RuntimeError("Simulated reply provider failure.")
+
+    service.reply_service.generate_reply = failed_reply
+
+    with pytest.raises(
+        RuntimeError,
+        match="Simulated reply provider failure",
+    ):
+        service.process_conversation(
+            db=db_session,
+            organization_id=conversation.organization_id,
+            conversation_id=conversation.id,
+        )
+
+    assert get_ai_usage(
+        db_session,
+        conversation.organization_id,
+    ) == {
+        "completed": 0,
+        "reserved": 0,
+    }
+
+
+def test_ai_insight_commit_failure_releases_reservation(
+    client,
+    db_session,
+    monkeypatch,
+):
+    owner = register_owner(client, "ai_usage_commit_failure@example.com")
+
+    conversation = create_conversation_with_customer_message(
+        client,
+        db_session,
+        owner,
+    )
+
+    db_session.add(
+        OrganizationAISettings(
+            organization_id=conversation.organization_id,
+            ai_enabled=True,
+            suggestions_enabled=False,
+        )
+    )
+    db_session.commit()
+
+    service = ConversationAIService()
+    configure_ai_services(service)
+
+    original_commit = db_session.commit
+    commit_count = 0
+
+    def fail_insight_commit():
+        nonlocal commit_count
+        commit_count += 1
+
+        # First commit persists the reservation.
+        # Second commit attempts to persist the insight and completion.
+        if commit_count == 2:
+            raise RuntimeError("Simulated insight persistence failure.")
+
+        return original_commit()
+
+    monkeypatch.setattr(db_session, "commit", fail_insight_commit)
+
+    with pytest.raises(
+        RuntimeError,
+        match="Simulated insight persistence failure",
+    ):
+        service.process_conversation(
+            db=db_session,
+            organization_id=conversation.organization_id,
+            conversation_id=conversation.id,
+        )
+
+    assert commit_count == 3
+
+    assert get_ai_usage(
+        db_session,
+        conversation.organization_id,
+    ) == {
+        "completed": 0,
+        "reserved": 0,
+    }
