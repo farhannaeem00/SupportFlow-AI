@@ -321,3 +321,88 @@ def test_failed_team_operations_create_no_audit_logs(client, db_session):
     ).all()
 
     assert logs == []
+
+
+def set_team_member_limit(client, owner, limit):
+    response = client.patch(
+        "/api/v1/organizations/current/usage-limits",
+        headers=auth_headers(owner),
+        json={"max_team_members": limit},
+    )
+    assert response.status_code == 200, response.text
+    return response
+
+
+def test_team_member_limit_allows_invitation_below_limit(client):
+    owner = register_owner(client)
+
+    # The owner already counts as one team member.
+    set_team_member_limit(client, owner, 2)
+
+    response = invite_agent(client, owner)
+
+    assert response.status_code == 201, response.text
+
+
+def test_team_member_limit_rejects_invitation_at_limit(client):
+    owner = register_owner(client)
+
+    # The owner already occupies the only permitted team-member slot.
+    set_team_member_limit(client, owner, 1)
+
+    response = invite_agent(
+        client,
+        owner,
+        email="limit-test-agent@example.com",
+    )
+
+    assert response.status_code == 403, response.text
+    assert "team_members" in response.text
+
+    # Raise the limit and retry with the same email.
+    # Success proves the rejected invitation did not create the user
+    # or membership.
+    set_team_member_limit(client, owner, 2)
+
+    retry_response = invite_agent(
+        client,
+        owner,
+        email="limit-test-agent@example.com",
+    )
+
+    assert retry_response.status_code == 201, retry_response.text
+
+
+def test_team_member_limit_null_allows_unlimited_invitations(client):
+    owner = register_owner(client)
+
+    # Explicit null means unlimited.
+    set_team_member_limit(client, owner, 1)
+    set_team_member_limit(client, owner, None)
+
+    response = invite_agent(client, owner)
+
+    assert response.status_code == 201, response.text
+
+
+def test_team_member_limit_is_isolated_between_organizations(client):
+    owner_a = register_owner(client, email="owner-a@example.com")
+    owner_b = register_owner(client, email="owner-b@example.com")
+
+    # Organization A has reached its limit because its owner counts.
+    set_team_member_limit(client, owner_a, 1)
+
+    response_a = invite_agent(
+        client,
+        owner_a,
+        email="agent-a@example.com",
+    )
+    assert response_a.status_code == 403, response_a.text
+
+    # Organization B has no configured limit and must remain unaffected.
+    response_b = invite_agent(
+        client,
+        owner_b,
+        email="agent-b@example.com",
+    )
+    assert response_b.status_code == 201, response_b.text

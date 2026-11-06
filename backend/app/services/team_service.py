@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.security import hash_password
 from app.models import Organization, OrganizationMember, User
 from app.services.audit_log_service import record_audit_log
+from app.services.organization_usage_service import (
+    enforce_usage_limit,
+    get_current_usage,
+)
 
 VALID_ROLES = {"owner", "agent"}
 
@@ -38,14 +42,30 @@ def add_team_member(
     if role not in VALID_ROLES:
         raise ValueError("Invalid role")
 
-    existing_user = db.scalar(
-        select(User).where(User.email == email)
-    )
-
-    if existing_user:
-        raise ValueError("A user with this email already exists")
-
     try:
+        # Serialize invitations within this organization.
+        _lock_organization(db, organization_id)
+
+        # Enforce the organization-wide team-member limit.
+        # The usage service counts every membership, including the owner.
+        current_usage = get_current_usage(db, organization_id)
+
+        enforce_usage_limit(
+            db,
+            organization_id,
+            metric="team_members",
+            current_usage=current_usage["team_members"],
+        )
+
+        existing_user = db.scalar(
+            select(User).where(User.email == email)
+        )
+
+        if existing_user:
+            raise ValueError(
+                "A user with this email already exists"
+            )
+
         user = User(
             full_name=full_name.strip(),
             email=email,
@@ -63,6 +83,7 @@ def add_team_member(
 
         db.add(membership)
         db.flush()
+
         record_audit_log(
             db,
             organization_id=organization_id,
@@ -75,6 +96,7 @@ def add_team_member(
                 "user_id": str(user.id),
             },
         )
+
         db.commit()
         db.refresh(membership)
 
@@ -159,6 +181,7 @@ def update_member_role(
                 "user_id": str(membership.user_id),
             },
         )
+
         membership.role = new_role
 
         db.commit()
@@ -223,6 +246,7 @@ def remove_team_member(
                 "user_id": str(membership.user_id),
             },
         )
+
         db.delete(membership)
         db.commit()
 

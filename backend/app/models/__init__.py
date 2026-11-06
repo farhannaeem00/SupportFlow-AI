@@ -16,6 +16,10 @@ from app.models.knowledge_base import (
     KnowledgeBase,
     KnowledgeDocument,
 )
+from app.models.organization_usage import (
+    OrganizationUsage,
+    OrganizationUsageLimit,
+)
 
 
 __all__ = [
@@ -35,4 +39,6 @@ __all__ = [
     "AuthRateLimit",
     "PasswordResetToken",
     "AuditLog",
+    "OrganizationUsage",
+    "OrganizationUsageLimit",
 ]
