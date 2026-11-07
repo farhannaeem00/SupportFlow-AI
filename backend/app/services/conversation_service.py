@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
 from app.models.conversation import Conversation
+from app.models.conversation_event import ConversationEvent
 from app.models.organization_member import OrganizationMember
 from app.schemas.conversation import ConversationCreate
 
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.message import Message
 
+from app.services.webhook_event_service import enqueue_webhook_deliveries
 from app.services.organization_usage_service import (
     enforce_usage_limit,
     get_current_usage,
@@ -66,6 +68,25 @@ def create_conversation(
         )
 
         db.add(conversation)
+        db.flush()
+
+        event = ConversationEvent(
+            conversation_id=conversation.id,
+            actor_id=None,
+            event_type="conversation_created",
+        )
+
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization_id,
+            event=event,
+            extra_data={
+                "subject": conversation.subject,
+                "status": conversation.status,
+                "priority": conversation.priority,
+                "channel": conversation.channel,
+            },
+        )
 
         # Update the monthly counter in the same transaction.
         record_conversation_created(db, organization_id)

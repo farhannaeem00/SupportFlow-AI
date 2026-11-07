@@ -8,6 +8,7 @@ from app.models.conversation import Conversation
 from app.models.conversation_event import ConversationEvent
 from app.models.organization_member import OrganizationMember
 from app.models.user import User
+from app.services.webhook_event_service import enqueue_webhook_deliveries
 
 from app.services.audit_log_service import record_audit_log
 
@@ -107,7 +108,11 @@ def assign_conversation(
             new_value=new_value,
         )
 
-        db.add(event)
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization_id,
+            event=event,
+        )
         record_audit_log(
             db,
             organization_id=organization_id,
@@ -163,7 +168,11 @@ def update_conversation_status(
             new_value=new_status,
         )
 
-        db.add(event)
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization_id,
+            event=event,
+        )
         record_audit_log(
             db,
             organization_id=organization_id,
@@ -219,7 +228,11 @@ def update_conversation_priority(
             new_value=new_priority,
         )
 
-        db.add(event)
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization_id,
+            event=event,
+        )
         record_audit_log(
             db,
             organization_id=organization_id,

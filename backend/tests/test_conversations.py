@@ -1,8 +1,9 @@
-
-from app.models.user import User
 import uuid
+
 from sqlalchemy import select
+
 from app.models.audit_log import AuditLog
+from app.models.user import User
 def register_owner(client, email):
     response = client.post(
         "/api/v1/auth/register",
@@ -24,13 +25,11 @@ def register_owner(client, email):
         "user_id": data["user"]["id"],
     }
 
-
 def auth_headers(account):
     return {
         "Authorization": f"Bearer {account['token']}",
         "X-Organization-ID": account["organization_id"],
     }
-
 
 def create_test_customer(client, owner):
     response = client.post(
@@ -46,7 +45,6 @@ def create_test_customer(client, owner):
 
     assert response.status_code == 201
     return response.json()
-
 
 def create_test_conversation(
     client,
@@ -64,7 +62,6 @@ def create_test_conversation(
             "channel": "web_widget",
         },
     )
-
 
 def create_test_agent(client, owner):
     invite_response = client.post(
@@ -101,7 +98,6 @@ def create_test_agent(client, owner):
 
     return me_response.json()["id"]
 
-
 def test_create_conversation_success(client):
     owner = register_owner(client, "owner1@example.com")
     customer = create_test_customer(client, owner)
@@ -122,7 +118,6 @@ def test_create_conversation_success(client):
     assert data["priority"] == "normal"
     assert data["status"] == "open"
 
-
 def test_create_conversation_with_invalid_customer(client):
     owner = register_owner(client, "owner2@example.com")
 
@@ -133,7 +128,6 @@ def test_create_conversation_with_invalid_customer(client):
     )
 
     assert response.status_code == 404
-
 
 def test_create_conversation_with_invalid_priority(client):
     owner = register_owner(client, "owner3@example.com")
@@ -152,7 +146,6 @@ def test_create_conversation_with_invalid_priority(client):
 
     assert response.status_code == 422
 
-
 def test_create_conversation_with_invalid_channel(client):
     owner = register_owner(client, "owner4@example.com")
     customer = create_test_customer(client, owner)
@@ -169,7 +162,6 @@ def test_create_conversation_with_invalid_channel(client):
     )
 
     assert response.status_code == 422
-
 
 def test_list_conversations(client):
     owner = register_owner(client, "owner5@example.com")
@@ -192,7 +184,6 @@ def test_list_conversations(client):
 
     assert response.status_code == 200
     assert len(response.json()) == 2
-
 
 def test_filter_conversations_by_status(client):
     owner = register_owner(client, "owner6@example.com")
@@ -220,7 +211,6 @@ def test_filter_conversations_by_status(client):
     assert len(response.json()) == 1
     assert response.json()[0]["status"] == "pending"
 
-
 def test_get_conversation_details(client):
     owner = register_owner(client, "owner7@example.com")
     customer = create_test_customer(client, owner)
@@ -238,7 +228,6 @@ def test_get_conversation_details(client):
     assert response.status_code == 200
     assert response.json()["id"] == conversation_id
     assert response.json()["customer"]["id"] == customer["id"]
-
 
 def test_send_agent_message(client):
     owner = register_owner(client, "owner8@example.com")
@@ -262,7 +251,6 @@ def test_send_agent_message(client):
     assert data["content"] == "Hello, how can I help you?"
     assert data["sender_type"] == "agent"
     assert data["sender_user_id"] == owner["user_id"]
-
 
 def test_get_conversation_message_history(client):
     owner = register_owner(client, "owner9@example.com")
@@ -295,7 +283,6 @@ def test_get_conversation_message_history(client):
     assert response.json()[0]["content"] == "First message"
     assert response.json()[1]["content"] == "Second message"
 
-
 def test_cannot_send_message_to_closed_conversation(client):
     owner = register_owner(client, "owner10@example.com")
     customer = create_test_customer(client, owner)
@@ -322,7 +309,6 @@ def test_cannot_send_message_to_closed_conversation(client):
     assert response.status_code == 409
     assert "closed conversation" in response.json()["detail"]
 
-
 def test_assign_conversation_to_team_member(client):
     owner = register_owner(client, "owner11@example.com")
     customer = create_test_customer(client, owner)
@@ -341,7 +327,6 @@ def test_assign_conversation_to_team_member(client):
 
     assert response.status_code == 200
     assert response.json()["assigned_to_id"] == agent_id
-
 
 def test_reject_assignment_to_non_member(client):
     owner_one = register_owner(client, "owner12@example.com")
@@ -390,11 +375,19 @@ def test_update_conversation_status_and_record_event(client):
 
     events = events_response.json()
 
-    assert len(events) == 1
-    assert events[0]["event_type"] == "status_changed"
-    assert events[0]["old_value"] == "open"
-    assert events[0]["new_value"] == "pending"
+    event_types = {event["event_type"] for event in events}
 
+    assert event_types == {
+        "conversation_created",
+        "status_changed",
+    }
+    assert "status_changed" in event_types
+    status_event = next(
+        event for event in events
+        if event["event_type"] == "status_changed"
+)
+    assert status_event["old_value"] == "open"
+    assert status_event["new_value"] == "pending"
 
 def test_update_conversation_priority_and_record_event(client):
     owner = register_owner(client, "owner15@example.com")
@@ -423,11 +416,20 @@ def test_update_conversation_priority_and_record_event(client):
 
     events = events_response.json()
 
-    assert len(events) == 1
-    assert events[0]["event_type"] == "priority_changed"
-    assert events[0]["old_value"] == "normal"
-    assert events[0]["new_value"] == "urgent"
+    event_types = {event["event_type"] for event in events}
 
+    assert event_types == {
+        "conversation_created",
+        "priority_changed",
+    }
+    assert "priority_changed" in event_types
+    priority_event = next(
+        event for event in events
+        if event["event_type"] == "priority_changed"
+    )
+
+    assert priority_event["old_value"] == "normal"
+    assert priority_event["new_value"] == "urgent"
 
 def test_unchanged_status_does_not_create_event(client):
     owner = register_owner(client, "owner16@example.com")
@@ -452,8 +454,14 @@ def test_unchanged_status_does_not_create_event(client):
     )
 
     assert events_response.status_code == 200
-    assert events_response.json() == []
+    events = events_response.json()
 
+    assert len(events) == 1
+    assert events[0]["event_type"] == "conversation_created"
+    assert all(
+        event["event_type"] != "status_changed"
+        for event in events
+    )
 
 def test_user_cannot_access_another_organizations_conversation(client):
     owner_one = register_owner(client, "owner17@example.com")
@@ -473,7 +481,6 @@ def test_user_cannot_access_another_organizations_conversation(client):
 
     assert response.status_code == 404
 
-
 def test_cannot_read_events_of_another_organizations_conversation(client):
     owner_one = register_owner(client, "owner19@example.com")
     owner_two = register_owner(client, "owner20@example.com")
@@ -491,8 +498,6 @@ def test_cannot_read_events_of_another_organizations_conversation(client):
     )
 
     assert response.status_code == 404
-
-
 
 def test_cannot_assign_conversation_to_inactive_user(client, db_session):
     owner = register_owner(client, "inactive_owner@example.com")
@@ -519,7 +524,6 @@ def test_cannot_assign_conversation_to_inactive_user(client, db_session):
     assert response.status_code == 422
     assert "active member" in response.json()["detail"]
 
-
 def test_reject_invalid_conversation_status_filter(client):
     owner = register_owner(client, "invalid_status@example.com")
 
@@ -529,7 +533,6 @@ def test_reject_invalid_conversation_status_filter(client):
     )
 
     assert response.status_code == 422
-
 
 def test_reject_invalid_conversation_priority_filter(client):
     owner = register_owner(client, "invalid_priority@example.com")
@@ -672,7 +675,6 @@ def test_unchanged_or_failed_conversation_changes_create_no_audit_logs(
 
     assert audit_logs == []
 
-
 def set_conversation_limit(client, owner, limit):
     response = client.patch(
         "/api/v1/organizations/current/usage-limits",
@@ -681,7 +683,6 @@ def set_conversation_limit(client, owner, limit):
     )
 
     assert response.status_code == 200, response.text
-
 
 def get_monthly_conversation_count(db_session, organization_id):
     from app.services.organization_usage_service import current_period_start
@@ -693,7 +694,6 @@ def get_monthly_conversation_count(db_session, organization_id):
             OrganizationUsage.period_start == current_period_start(),
         )
     )
-
 
 def test_monthly_conversation_limit_allows_creation_below_limit(
     client,
@@ -715,7 +715,6 @@ def test_monthly_conversation_limit_allows_creation_below_limit(
     assert get_monthly_conversation_count(
         db_session, owner["organization_id"]
     ) == 2
-
 
 def test_monthly_conversation_limit_rejects_creation_at_limit(
     client,
@@ -752,7 +751,6 @@ def test_monthly_conversation_limit_rejects_creation_at_limit(
         db_session, owner["organization_id"]
     ) == 2
 
-
 def test_monthly_conversation_limit_null_allows_unlimited_creation(
     client,
     db_session,
@@ -776,7 +774,6 @@ def test_monthly_conversation_limit_null_allows_unlimited_creation(
     assert get_monthly_conversation_count(
         db_session, owner["organization_id"]
     ) == 2
-
 
 def test_monthly_conversation_limit_is_isolated_between_organizations(
     client,

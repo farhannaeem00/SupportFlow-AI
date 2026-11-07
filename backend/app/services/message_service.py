@@ -4,7 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation
+from app.models.conversation_event import ConversationEvent
 from app.models.message import Message
+from app.services.webhook_event_service import enqueue_webhook_deliveries
 
 def create_agent_message(
     db: Session,
@@ -38,6 +40,26 @@ def create_agent_message(
 
     try:
         db.add(message)
+
+        db.flush()
+
+        event = ConversationEvent(
+            conversation_id=conversation.id,
+            actor_id=agent_id,
+            event_type="message_created",
+        )
+
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization_id,
+            event=event,
+            extra_data={
+                "message_id": str(message.id),
+                "sender_type": message.sender_type,
+                "message_type": message.message_type,
+            },
+        )
+
         db.commit()
         db.refresh(message)
         return message

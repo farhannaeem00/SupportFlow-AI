@@ -15,7 +15,9 @@ from app.models import (
     Message,
     WidgetSession,
 )
+from app.models.conversation_event import ConversationEvent
 
+from app.services.webhook_event_service import enqueue_webhook_deliveries
 from app.services.organization_usage_service import (
     enforce_usage_limit,
     get_current_usage,
@@ -161,6 +163,42 @@ def start_widget_conversation(
         )
 
         db.add(initial_message)
+        db.flush()
+
+        conversation_event = ConversationEvent(
+            conversation_id=conversation.id,
+            actor_id=None,
+            event_type="conversation_created",
+        )
+
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization.id,
+            event=conversation_event,
+            extra_data={
+                "subject": conversation.subject,
+                "status": conversation.status,
+                "priority": conversation.priority,
+                "channel": conversation.channel,
+            },
+        )
+
+        message_event = ConversationEvent(
+            conversation_id=conversation.id,
+            actor_id=None,
+            event_type="message_created",
+        )
+
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=organization.id,
+            event=message_event,
+            extra_data={
+                "message_id": str(initial_message.id),
+                "sender_type": initial_message.sender_type,
+                "message_type": initial_message.message_type,
+            },
+        )
 
         widget_session.customer_id = customer.id
         widget_session.conversation_id = conversation.id
@@ -213,6 +251,25 @@ def send_widget_message(
 
     try:
         db.add(message)
+        db.flush()
+
+        event = ConversationEvent(
+            conversation_id=conversation.id,
+            actor_id=None,
+            event_type="message_created",
+        )
+
+        enqueue_webhook_deliveries(
+            db,
+            organization_id=widget_session.organization_id,
+            event=event,
+            extra_data={
+                "message_id": str(message.id),
+                "sender_type": message.sender_type,
+                "message_type": message.message_type,
+            },
+        )
+
         db.commit()
         db.refresh(message)
         return message
