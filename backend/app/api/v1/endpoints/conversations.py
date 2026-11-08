@@ -80,6 +80,9 @@ from app.services.notification_service import (
     notify_conversation_urgent,
     notify_conversation_resolved,
 )
+from app.services.webhook_delivery_service import (
+    process_due_webhook_deliveries,
+)
 
 router = APIRouter(
     prefix="/conversations",
@@ -94,15 +97,21 @@ router = APIRouter(
 )
 def create_conversation_endpoint(
     payload: ConversationCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: OrganizationMember = Depends(get_current_membership),
 ):
     try:
-        return create_conversation(
+        conversation = create_conversation(
             db=db,
             organization_id=membership.organization_id,
             payload=payload,
         )
+        background_tasks.add_task(
+            process_due_webhook_deliveries,
+            limit=20,
+        )
+        return conversation
     except LookupError as exc:
         raise HTTPException(
             status_code=404,
@@ -203,6 +212,7 @@ def get_conversation_message_history(
 def send_agent_message(
     conversation_id: uuid.UUID,
     payload: MessageCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     membership: OrganizationMember = Depends(get_current_membership),
 ):
@@ -215,13 +225,18 @@ def send_agent_message(
         )
 
     try:
-        return create_agent_message(
+        message = create_agent_message(
             db=db,
             organization_id=membership.organization_id,
             conversation_id=conversation_id,
             agent_id=membership.user_id,
             content=content,
         )
+        background_tasks.add_task(
+            process_due_webhook_deliveries,
+            limit=20,
+        )
+        return message
 
     except LookupError as exc:
         raise HTTPException(
@@ -260,6 +275,10 @@ def update_conversation_assignment(
             conversation_id=conversation_id,
             actor_id=membership.user_id,
             assigned_to_id=payload.assigned_to_id,
+        )
+        background_tasks.add_task(
+            process_due_webhook_deliveries,
+            limit=20,
         )
 
         if (
@@ -307,6 +326,10 @@ def update_status(
             actor_id=membership.user_id,
             new_status=payload.status,
         )
+        background_tasks.add_task(
+            process_due_webhook_deliveries,
+            limit=20,
+        )
 
         if (
             conversation.status == "resolved"
@@ -351,6 +374,10 @@ def update_priority(
             conversation_id=conversation_id,
             actor_id=membership.user_id,
             new_priority=payload.priority,
+        )
+        background_tasks.add_task(
+            process_due_webhook_deliveries,
+            limit=20,
         )
 
         if (

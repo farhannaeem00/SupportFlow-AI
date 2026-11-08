@@ -14,6 +14,9 @@ from app.services.notification_service import (
     notify_new_widget_conversation,
     notify_customer_message,
 )
+from app.services.webhook_delivery_service import (
+    process_due_webhook_deliveries,
+)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -210,6 +213,10 @@ def create_conversation(
         message_content=payload.message,
     )
     background_tasks.add_task(
+        process_due_webhook_deliveries,
+        limit=20,
+    )
+    background_tasks.add_task(
         notify_new_widget_conversation,
         organization.id,
         conversation.id,
@@ -270,6 +277,10 @@ def send_message(
             db,
             widget_session,
             payload.message,
+        )
+        background_tasks.add_task(
+            process_due_webhook_deliveries,
+            limit=20,
         )
         if widget_session.conversation_id is not None:
             background_tasks.add_task(
