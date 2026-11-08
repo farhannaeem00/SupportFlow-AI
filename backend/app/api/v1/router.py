@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     knowledge_documents,
     knowledge_search,
     audit_logs,
+    webhooks,
 )
 
 api_router = APIRouter(
@@ -34,3 +35,4 @@ api_router.include_router(knowledge_bases.router)
 api_router.include_router(knowledge_documents.router)
 api_router.include_router(knowledge_search.router)
 api_router.include_router(audit_logs.router)
+api_router.include_router(webhooks.router)
