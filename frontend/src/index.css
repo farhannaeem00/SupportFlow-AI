@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+  font-family: 'Inter', sans-serif;
+  color: #20213a;
+  background: #f6f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --sf-navy: #171936;
+  --sf-navy-light: #222448;
+  --sf-primary: #4935c8;
+  --sf-primary-hover: #3927ad;
+  --sf-accent: #7967f5;
+  --sf-background: #f6f7fb;
+  --sf-surface: #ffffff;
+  --sf-border: #e9eaf1;
+  --sf-text: #20213a;
+  --sf-muted: #777b91;
+  --sf-success: #16a36a;
+  --sf-warning: #f59e0b;
+  --sf-danger: #dc4545;
+
+  font-optical-sizing: auto;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+}
+
+::selection {
+  color: #ffffff;
+  background: var(--sf-primary);
+}
+
+:focus-visible {
+  outline: 3px solid rgb(121 103 245 / 45%);
+  outline-offset: 2px;
+}
