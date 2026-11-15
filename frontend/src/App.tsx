@@ -16,6 +16,8 @@ import ForgotPasswordPage from './features/auth/ForgotPasswordPage'
 import ResetPasswordPage from './features/auth/ResetPasswordPage'
 import ConversationsPage from './features/conversations/ConversationsPage'
 import CustomersPage from './features/customers/CustomersPage'
+import WidgetPage from './features/widget/WidgetPage'
+
 import './App.css'
 
 const pageDetails: Record<string, { title: string; description: string }> = {
@@ -171,6 +173,7 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/widget/:publicKey" element={<WidgetPage />} />
       
       <Route
         path="/*"
