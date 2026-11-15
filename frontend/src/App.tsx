@@ -14,6 +14,8 @@ import LoginPage from './features/auth/LoginPage'
 import RegisterPage from './features/auth/RegisterPage'
 import ForgotPasswordPage from './features/auth/ForgotPasswordPage'
 import ResetPasswordPage from './features/auth/ResetPasswordPage'
+import ConversationsPage from './features/conversations/ConversationsPage'
+import CustomersPage from './features/customers/CustomersPage'
 import './App.css'
 
 const pageDetails: Record<string, { title: string; description: string }> = {
@@ -114,9 +116,24 @@ function AppLayout() {
 
         <main className="app-content">
           <Routes>
+            
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route
+              path="/conversations"
+              element={<ConversationsPage />}
+            />
+            <Route
+              path="/customers"
+              element={<CustomersPage />}
+            />
+
             {Object.keys(pageDetails)
-              .filter((path) => path !== '/dashboard')
+              .filter(
+                (path) =>
+                  path !== '/dashboard' &&
+                  path !== '/conversations' &&
+                  path !== '/customers'
+              )
               .map((path) => (
                 <Route
                   key={path}
@@ -126,6 +143,7 @@ function AppLayout() {
                   }
                 />
               ))}
+            
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
