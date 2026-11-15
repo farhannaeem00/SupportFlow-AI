@@ -1,9 +1,19 @@
 
 import { useState } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from 'react-router-dom'
 import AppSidebar from './components/layout/AppSidebar'
 import AppHeader from './components/layout/AppHeader'
+import ProtectedRoute from './components/auth/ProtectedRoute'
 import DashboardPage from './features/dashboard/DashboardPage'
+import LoginPage from './features/auth/LoginPage'
+import RegisterPage from './features/auth/RegisterPage'
+import ForgotPasswordPage from './features/auth/ForgotPasswordPage'
+import ResetPasswordPage from './features/auth/ResetPasswordPage'
 import './App.css'
 
 const pageDetails: Record<string, { title: string; description: string }> = {
@@ -124,6 +134,34 @@ function AppLayout() {
   )
 }
 
+// function ForgotPasswordPlaceholder() {
+//   return (
+//     <main className="auth-loading">
+//       <div>
+//         <h2>Password recovery</h2>
+//         <p>The password recovery form is the next implementation step.</p>
+//         <Link to="/login">Back to login</Link>
+//       </div>
+//     </main>
+//   )
+// }
+
 export default function App() {
-  return <AppLayout />
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  )
 }

@@ -1,11 +1,15 @@
 
+import { useState } from 'react'
 import {
   Bell,
   ChevronDown,
+  LogOut,
   Menu,
   Search,
   Settings,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../features/auth/AuthContext'
 
 interface AppHeaderProps {
   title: string
@@ -18,6 +22,15 @@ export default function AppHeader({
   description,
   onMenuClick,
 }: AppHeaderProps) {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <header className="app-header">
       <div className="header-heading">
@@ -69,11 +82,32 @@ export default function AppHeader({
 
         <div className="header-divider" />
 
-        <button type="button" className="header-user">
-          <span className="header-user-avatar">FN</span>
-          <span className="header-user-name">Admin</span>
-          <ChevronDown size={15} />
-        </button>
+        <div className="header-account">
+          <button
+            type="button"
+            className="header-user"
+            aria-expanded={accountMenuOpen}
+            aria-haspopup="true"
+            onClick={() => setAccountMenuOpen((open) => !open)}
+          >
+            <span className="header-user-avatar">FN</span>
+            <span className="header-user-name">Admin</span>
+            <ChevronDown size={15} />
+          </button>
+
+          {accountMenuOpen && (
+            <div className="header-account-menu">
+              <button
+                type="button"
+                className="header-account-menu-item"
+                onClick={handleLogout}
+              >
+                <LogOut size={16} />
+                <span>Log out</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   )
