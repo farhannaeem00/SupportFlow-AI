@@ -22,6 +22,7 @@ import CustomersPage from './features/customers/CustomersPage'
 
 import WidgetPage from './features/widget/WidgetPage'
 import WidgetSettingsPage from './features/widget/WidgetSettingsPage'
+import KnowledgeBasePage from './features/knowledge-base/KnowledgeBasePage'
 
 import './App.css'
 
@@ -113,6 +114,7 @@ function AppLayout() {
         '/conversations',
         '/customers',
         '/widget',
+        '/knowledge-base',
       ].includes(path),
   )
 
@@ -144,6 +146,11 @@ function AppLayout() {
             <Route
               path="/customers"
               element={<CustomersPage />}
+            />
+
+            <Route
+              path="/knowledge-base"
+              element={<KnowledgeBasePage />}
             />
 
             <Route
