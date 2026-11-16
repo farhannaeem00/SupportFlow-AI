@@ -6,17 +6,22 @@ import {
   Routes,
   useLocation,
 } from 'react-router-dom'
+
 import AppSidebar from './components/layout/AppSidebar'
 import AppHeader from './components/layout/AppHeader'
 import ProtectedRoute from './components/auth/ProtectedRoute'
+
 import DashboardPage from './features/dashboard/DashboardPage'
 import LoginPage from './features/auth/LoginPage'
 import RegisterPage from './features/auth/RegisterPage'
 import ForgotPasswordPage from './features/auth/ForgotPasswordPage'
 import ResetPasswordPage from './features/auth/ResetPasswordPage'
+
 import ConversationsPage from './features/conversations/ConversationsPage'
 import CustomersPage from './features/customers/CustomersPage'
+
 import WidgetPage from './features/widget/WidgetPage'
+import WidgetSettingsPage from './features/widget/WidgetSettingsPage'
 
 import './App.css'
 
@@ -95,10 +100,21 @@ function ComingSoonPage({ title }: { title: string }) {
 function AppLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+
   const location = useLocation()
 
   const currentPage =
     pageDetails[location.pathname] ?? pageDetails['/dashboard']
+
+  const comingSoonRoutes = Object.keys(pageDetails).filter(
+    (path) =>
+      ![
+        '/dashboard',
+        '/conversations',
+        '/customers',
+        '/widget',
+      ].includes(path),
+  )
 
   return (
     <div className="app-shell">
@@ -118,35 +134,37 @@ function AppLayout() {
 
         <main className="app-content">
           <Routes>
-            
             <Route path="/dashboard" element={<DashboardPage />} />
+
             <Route
               path="/conversations"
               element={<ConversationsPage />}
             />
+
             <Route
               path="/customers"
               element={<CustomersPage />}
             />
 
-            {Object.keys(pageDetails)
-              .filter(
-                (path) =>
-                  path !== '/dashboard' &&
-                  path !== '/conversations' &&
-                  path !== '/customers'
-              )
-              .map((path) => (
-                <Route
-                  key={path}
-                  path={path}
-                  element={
-                    <ComingSoonPage title={pageDetails[path].title} />
-                  }
-                />
-              ))}
-            
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route
+              path="/widget"
+              element={<WidgetSettingsPage />}
+            />
+
+            {comingSoonRoutes.map((path) => (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <ComingSoonPage title={pageDetails[path].title} />
+                }
+              />
+            ))}
+
+            <Route
+              path="*"
+              element={<Navigate to="/dashboard" replace />}
+            />
           </Routes>
         </main>
       </div>
@@ -154,27 +172,30 @@ function AppLayout() {
   )
 }
 
-// function ForgotPasswordPlaceholder() {
-//   return (
-//     <main className="auth-loading">
-//       <div>
-//         <h2>Password recovery</h2>
-//         <p>The password recovery form is the next implementation step.</p>
-//         <Link to="/login">Back to login</Link>
-//       </div>
-//     </main>
-//   )
-// }
-
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route path="/widget/:publicKey" element={<WidgetPage />} />
-      
+
+      <Route
+        path="/forgot-password"
+        element={<ForgotPasswordPage />}
+      />
+
+      <Route
+        path="/reset-password"
+        element={<ResetPasswordPage />}
+      />
+
+      {/* Public customer-facing widget: no dashboard login required */}
+      <Route
+        path="/widget/:publicKey"
+        element={<WidgetPage />}
+      />
+
+      {/* Protected dashboard routes */}
       <Route
         path="/*"
         element={
