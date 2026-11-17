@@ -23,6 +23,7 @@ import CustomersPage from './features/customers/CustomersPage'
 import WidgetPage from './features/widget/WidgetPage'
 import WidgetSettingsPage from './features/widget/WidgetSettingsPage'
 import KnowledgeBasePage from './features/knowledge-base/KnowledgeBasePage'
+import TeamPage from './features/team/TeamPage'
 
 import './App.css'
 
@@ -115,6 +116,7 @@ function AppLayout() {
         '/customers',
         '/widget',
         '/knowledge-base',
+        '/team',
       ].includes(path),
   )
 
@@ -156,6 +158,11 @@ function AppLayout() {
             <Route
               path="/widget"
               element={<WidgetSettingsPage />}
+            />
+
+            <Route
+              path="/team"
+              element={<TeamPage />}
             />
 
             {comingSoonRoutes.map((path) => (
