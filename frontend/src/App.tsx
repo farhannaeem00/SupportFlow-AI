@@ -24,6 +24,7 @@ import WidgetPage from './features/widget/WidgetPage'
 import WidgetSettingsPage from './features/widget/WidgetSettingsPage'
 import KnowledgeBasePage from './features/knowledge-base/KnowledgeBasePage'
 import TeamPage from './features/team/TeamPage'
+import AISettingsPage from './features/ai-settings/AISettingsPage'
 
 import './App.css'
 
@@ -116,6 +117,7 @@ function AppLayout() {
         '/customers',
         '/widget',
         '/knowledge-base',
+        '/ai-settings',
         '/team',
       ].includes(path),
   )
@@ -163,6 +165,11 @@ function AppLayout() {
             <Route
               path="/team"
               element={<TeamPage />}
+            />
+
+            <Route
+              path="/ai-settings"
+              element={<AISettingsPage />}
             />
 
             {comingSoonRoutes.map((path) => (
